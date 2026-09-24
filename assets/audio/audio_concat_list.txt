@@ -1,0 +1,4 @@
+file 'C:/Users/zxzx7/Desktop/insta_auto/assets/audio/scene_01.mp3'
+file 'C:/Users/zxzx7/Desktop/insta_auto/assets/audio/scene_02.mp3'
+file 'C:/Users/zxzx7/Desktop/insta_auto/assets/audio/scene_03.mp3'
+file 'C:/Users/zxzx7/Desktop/insta_auto/assets/audio/scene_04.mp3'
