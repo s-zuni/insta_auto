@@ -1,4 +1,4 @@
-﻿# Google GenAI & Vertex AI & Cloud Services
+# Google GenAI & Vertex AI & Cloud Services
 google-genai>=0.1.1
 google-cloud-texttospeech>=2.16.0
 edge-tts>=6.1.0

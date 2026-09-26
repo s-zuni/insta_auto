@@ -1,4 +1,4 @@
-﻿"""
+"""
 Telegram Reels Automation Unified Bot.
 Features:
 - Single process bot running 24/7 on Railway or local

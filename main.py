@@ -1,4 +1,4 @@
-﻿"""
+"""
 Instagram Reels Automation Pipeline Orchestrator.
 MBTI x Saju Content -> TTS -> Visuals -> FFmpeg Composition -> Google Drive Upload -> Instagram Reels Publish
 """
