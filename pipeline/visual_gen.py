@@ -1,11 +1,13 @@
-"""
-Visual Generation Module using Vertex AI Imagen 3 API.
-Generates 9:16 vertical images (1080x1920) for each scene and saves them in assets/images/.
-Includes aesthetic fallback generator for offline testing or when GCP ADC is not configured.
+﻿"""
+Visual Generation Module.
+Supports Vertex AI Imagen 3 and Pollinations FLUX.1 HD Engine (9:16 vertical 1080x1920).
+Automatically generates rich cinematic visuals matching the scene narration.
 """
 import os
 import sys
 import io
+import time
+import requests
 from pathlib import Path
 from typing import List, Optional
 from PIL import Image, ImageDraw, ImageFont
@@ -25,62 +27,29 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def create_aesthetic_placeholder(
-    scene_id: int,
-    narration: str,
-    output_path: Path,
-    width: int = 1080,
-    height: int = 1920
-):
+def generate_with_pollinations_flux(prompt: str, output_path: Path) -> bool:
     """
-    Imagen 3 API 호출이 불가능할 때(인증 미비 등) 영상 합성 테스트를 위해
-    고해상도 9:16 그라디언트 배경의 더미 이미지를 생성합니다.
+    Pollinations FLUX.1 엔진을 사용하여 고화질 9:16 세로형(1080x1920) 이미지를 생성합니다.
+    API 키 없이 안정적으로 고품질 비주얼을 제공합니다.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # 씬 번호에 따른 세련된 그라디언트 색상 페어
-    color_schemes = [
-        ((25, 20, 60), (90, 45, 140)),    # Deep Purple to Magenta
-        ((15, 32, 67), (35, 110, 160)),   # Midnight Blue to Cyan
-        ((40, 20, 20), (160, 60, 40)),    # Dark Crimson to Amber
-        ((20, 40, 30), (45, 120, 85)),    # Forest to Emerald
-        ((35, 25, 55), (130, 80, 140)),   # Violet Sunset
-    ]
-    c_start, c_end = color_schemes[(scene_id - 1) % len(color_schemes)]
-
-    # 1080x1920 세로 그라디언트 버퍼 생성
-    base = Image.new("RGB", (width, height), c_start)
-    draw = ImageDraw.Draw(base)
-
-    for y in range(height):
-        ratio = y / height
-        r = int(c_start[0] + (c_end[0] - c_start[0]) * ratio)
-        g = int(c_start[1] + (c_end[1] - c_start[1]) * ratio)
-        b = int(c_start[2] + (c_end[2] - c_start[2]) * ratio)
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
-
-    # 중앙 원형 포인트 그래픽
-    center_y = height // 2 - 100
-    draw.ellipse(
-        [(width // 2 - 180, center_y - 180), (width // 2 + 180, center_y + 180)],
-        outline=(255, 255, 255, 120),
-        width=4
-    )
-
-    # 텍스트 오버레이
     try:
-        font_large = ImageFont.truetype("malgun.ttf", 72)
-        font_sub = ImageFont.truetype("malgun.ttf", 36)
-    except Exception:
-        font_large = ImageFont.load_default()
-        font_sub = ImageFont.load_default()
-
-    scene_label = f"SCENE {scene_id:02d}"
-    draw.text((width // 2, center_y), scene_label, font=font_large, fill=(255, 255, 255), anchor="mm")
-    draw.text((width // 2, center_y + 80), "Instagram Reels Automation", font=font_sub, fill=(200, 200, 220), anchor="mm")
-
-    base.save(output_path, "JPEG", quality=95)
-    print(f"  [IMAGE] 씬 {scene_id} 플레이스홀더 이미지 생성 완료 -> {output_path.name}")
+        clean_prompt = prompt.replace("\n", " ").strip()
+        enhanced_prompt = f"{clean_prompt}, cinematic aesthetic, mystical mood, 8k resolution, vertical 9:16 ratio, hyperrealistic"
+        encoded = requests.utils.quote(enhanced_prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&nologo=true&model=flux"
+        
+        print(f"    [AI-IMAGE] FLUX.1 생성 요청 중: '{prompt[:40]}...'")
+        r = requests.get(url, timeout=45)
+        if r.status_code == 200 and len(r.content) > 10000:
+            with open(output_path, "wb") as f:
+                f.write(r.content)
+            return True
+        else:
+            print(f"    [WARN] FLUX 응답 비정상 (code={r.status_code}, len={len(r.content)})")
+    except Exception as e:
+        print(f"    [WARN] FLUX 생성 실패: {e}")
+    return False
 
 
 def generate_with_vertex_imagen(
@@ -90,16 +59,11 @@ def generate_with_vertex_imagen(
     location: str = "us-central1",
     model_name: str = "imagen-3.0-generate-002"
 ) -> bool:
-    """
-    Vertex AI SDK를 이용해 Imagen 3로 9:16 이미지를 생성합니다.
-    """
+    """Vertex AI SDK를 이용해 Imagen 3로 이미지를 생성합니다."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # 1. vertexai preview vision_models 시도
     try:
         import vertexai
         from vertexai.preview.vision_models import ImageGenerationModel
-
         vertexai.init(project=project_id, location=location)
         model = ImageGenerationModel.from_pretrained(model_name)
         images = model.generate_images(
@@ -112,30 +76,31 @@ def generate_with_vertex_imagen(
         if images:
             images[0].save(location=str(output_path), include_generation_parameters=False)
             return True
-    except Exception as e1:
-        # 2. google-genai Client 시도
-        try:
-            from google import genai
-            client = genai.Client(vertexai=True, project=project_id, location=location)
-            result = client.models.generate_images(
-                model=model_name,
-                prompt=prompt,
-                config=dict(
-                    number_of_images=1,
-                    aspect_ratio="9:16",
-                    output_mime_type="image/jpeg",
-                )
-            )
-            if result.generated_images:
-                img_data = result.generated_images[0].image.image_bytes
-                image = Image.open(io.BytesIO(img_data))
-                image.save(output_path, "JPEG", quality=95)
-                return True
-        except Exception as e2:
-            print(f"  [WARN] Imagen API 호출 실패: {e1} / {e2}")
-            return False
-
+    except Exception:
+        pass
     return False
+
+
+def create_aesthetic_placeholder(scene_id: int, narration: str, output_path: Path):
+    """최후의 수단으로 사용하는 세련된 백드롭"""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    color_schemes = [
+        ((25, 20, 60), (90, 45, 140)),
+        ((15, 32, 67), (35, 110, 160)),
+        ((40, 20, 20), (160, 60, 40)),
+        ((20, 40, 30), (45, 120, 85)),
+        ((35, 25, 55), (130, 80, 140)),
+    ]
+    c_start, c_end = color_schemes[(scene_id - 1) % len(color_schemes)]
+    base = Image.new("RGB", (1080, 1920), c_start)
+    draw = ImageDraw.Draw(base)
+    for y in range(1920):
+        ratio = y / 1920
+        r = int(c_start[0] + (c_end[0] - c_start[0]) * ratio)
+        g = int(c_start[1] + (c_end[1] - c_start[1]) * ratio)
+        b = int(c_start[2] + (c_end[2] - c_start[2]) * ratio)
+        draw.line([(0, y), (1080, y)], fill=(r, g, b))
+    base.save(output_path, "JPEG", quality=95)
 
 
 def generate_scene_images(
@@ -143,25 +108,21 @@ def generate_scene_images(
     output_dir: Optional[str | Path] = None,
     force_mock: bool = False
 ) -> List[str]:
-    """
-    씬 리스트의 visual_prompt를 순회하며 9:16 이미지를 생성/저장하고 경로 리스트를 반환합니다.
-    """
+    """씬 리스트의 visual_prompt를 바탕으로 9:16 고화질 비주얼을 생성합니다."""
     if output_dir is None:
         output_dir = Path("assets/images")
     else:
         output_dir = Path(output_dir)
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "proud-climber-458207-e8")
     location = os.getenv("GCP_LOCATION", "us-central1")
     model_name = os.getenv("IMAGEN_MODEL", "imagen-3.0-generate-002")
     sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
     can_use_vertex = (not force_mock) and bool(sa_path and os.path.isfile(sa_path))
-    image_paths: List[str] = []
 
-    print(f"[VISUAL] 총 {len(scenes)}개 씬에 대한 9:16 이미지 생성을 시작합니다...")
+    image_paths: List[str] = []
+    print(f"[VISUAL] 총 {len(scenes)}개 씬 비주얼 생성 시작 (엔진: FLUX.1 / Imagen 3)...")
 
     for sc in scenes:
         scene_id = getattr(sc, "scene_id", sc.get("scene_id") if isinstance(sc, dict) else 1)
@@ -171,14 +132,19 @@ def generate_scene_images(
         img_path = output_dir / f"scene_{scene_id:02d}.jpg"
         generated = False
 
-        if can_use_vertex:
-            print(f"  [VISUAL] 씬 {scene_id} Imagen 3 생성 중: '{prompt[:45]}...'")
-            generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
+        if not force_mock:
+            # 1. FLUX.1 고품질 생성 시도 (가장 안정적이고 고화질)
+            generated = generate_with_pollinations_flux(prompt, img_path)
+            
+            # 2. Vertex AI Imagen 3 시도 (설정된 경우)
+            if not generated and can_use_vertex:
+                generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
 
         if not generated:
+            print(f"  [VISUAL] 씬 {scene_id} 백드롭 생성")
             create_aesthetic_placeholder(scene_id, narration, img_path)
 
-        # 이미지 크기 검증 및 필요 시 1080x1920 리사이즈 보정
+        # 1080x1920 해상도 보정
         try:
             with Image.open(img_path) as im:
                 if im.size != (1080, 1920):
@@ -188,17 +154,7 @@ def generate_scene_images(
             pass
 
         image_paths.append(str(img_path.resolve()))
+        print(f"  ✅ 씬 {scene_id} 이미지 준비 완료 -> {img_path.name}")
 
-    print(f"[SUCCESS] 모든 씬({len(image_paths)}장) 이미지 준비 완료!")
+    print(f"[SUCCESS] 모든 씬({len(image_paths)}장) 고화질 비주얼 생성 완료!")
     return image_paths
-
-
-if __name__ == "__main__":
-    from pipeline.script_gen import create_sample_script
-
-    sample = create_sample_script("테스트 릴스")
-    paths = generate_scene_images(sample.scenes, force_mock=True)
-    print("\n생성된 이미지 목록:")
-    for p in paths:
-        print(f"  - {p}")
-

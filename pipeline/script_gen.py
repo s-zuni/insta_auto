@@ -111,7 +111,7 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
     from google.genai import types
 
     if not model_name:
-        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
     client = get_gemini_client()
 

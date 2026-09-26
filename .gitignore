@@ -48,3 +48,9 @@ assets/subtitles/*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Test & runtime artifacts
+bot_output.txt
+test_*.jpg
+test_*.mp4
+state.db
