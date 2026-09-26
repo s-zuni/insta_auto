@@ -24,6 +24,37 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def _check_token_validity(account_id: str, access_token: str) -> Optional[str]:
+    """
+    게시 시도 전에 토큰 상태를 미리 점검합니다.
+    문제가 없으면 None, 문제가 있으면 원인과 해결 방법을 담은 한글 메시지를 반환합니다.
+    """
+    try:
+        res = requests.get(
+            f"https://graph.facebook.com/v19.0/{account_id}",
+            params={"fields": "id,username", "access_token": access_token},
+            timeout=15,
+        )
+        if res.ok:
+            return None
+
+        err = res.json().get("error", {}) if res.headers.get("content-type", "").startswith("application/json") else {}
+        message = err.get("message", res.text)
+        code = err.get("code")
+
+        if code in (190, 102) or "expired" in message.lower() or "session has expired" in message.lower():
+            return (
+                f"Instagram 액세스 토큰이 만료되었습니다: {message}\n"
+                "  ▶ 해결 방법: Graph API Explorer에서 새 단기 토큰을 발급받은 뒤\n"
+                "    'python pipeline/insta_token_refresh.py <새_단기_토큰>' 을 실행해\n"
+                "    사실상 만료되지 않는 장기 페이지 액세스 토큰으로 교체하세요.\n"
+                "    (자세한 절차는 README 또는 스크립트 안내 참고)"
+            )
+        return f"Instagram 토큰/계정 점검 실패: {message}"
+    except Exception as e:
+        return f"Instagram 토큰 사전 점검 중 네트워크 오류: {e}"
+
+
 def publish_reel_to_instagram(
     video_url: str,
     caption: str,
@@ -40,6 +71,13 @@ def publish_reel_to_instagram(
 
     if not account_id or not access_token:
         raise ValueError("INSTAGRAM_ACCOUNT_ID 및 INSTAGRAM_ACCESS_TOKEN이 필요합니다.")
+
+    # 0. 토큰 사전 점검 (만료된 토큰으로 컨테이너를 만들었다가 인코딩 대기 시간을
+    #    낭비하는 것을 방지하고, 만료 시 원인/해결법을 바로 안내합니다.)
+    token_error = _check_token_validity(account_id, access_token)
+    if token_error:
+        print(f"[ERROR] {token_error}")
+        return {"error": token_error}
 
     base_url = f"https://graph.facebook.com/v19.0/{account_id}"
 

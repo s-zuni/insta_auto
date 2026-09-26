@@ -82,7 +82,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,Sans,62,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
+Style: ReelsSub,NanumGothic,62,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -254,7 +254,11 @@ def compose_reels_video(
     # 4. 자막 번인(Hardsub) 최종 인코딩
     print(f"[COMPOSER] 자막 하드코딩 및 최종 릴스 렌더링 -> {output_video_path}...")
     escaped_ass = str(ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
-    subtitle_filter = f"ass='{escaped_ass}'"
+    # fontsdir로 번들 한글 폰트를 직접 지정 -> 로컬(Windows)과 배포 환경(Railway/Linux)의
+    # 시스템 폰트 설정(fontconfig)에 관계없이 항상 동일한 한글 자막 렌더링을 보장합니다.
+    fonts_dir = PROJECT_ROOT / "assets" / "fonts"
+    escaped_fontsdir = str(fonts_dir.resolve()).replace("\\", "/").replace(":", "\\:")
+    subtitle_filter = f"ass='{escaped_ass}':fontsdir='{escaped_fontsdir}'"
 
     final_cmd = [
         ffmpeg_bin,

@@ -1,7 +1,7 @@
 ﻿"""
 Visual Generation Module.
-Supports Vertex AI Imagen 3 and Pollinations FLUX.1 HD Engine (9:16 vertical 1080x1920).
-Automatically generates rich cinematic visuals matching the scene narration.
+Engine priority: Gemini 2.5 Flash Image ("Nano Banana") -> Pollinations FLUX.1 -> Vertex AI Imagen 3.
+Automatically generates rich cinematic 9:16 vertical (1080x1920) visuals matching the scene narration.
 """
 import os
 import sys
@@ -36,6 +36,67 @@ class ImageGenResult:
     @property
     def placeholder_count(self) -> int:
         return len(self.placeholder_scene_ids)
+
+
+def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int = 2) -> bool:
+    """
+    Google Gemini 2.5 Flash Image ("나노바나나") 모델로 9:16 세로형 초고화질 이미지를 생성합니다.
+    FLUX(Pollinations) 대비 프롬프트 이해도와 사실적 디테일이 뛰어나며, 무료 큐/압축으로 인한
+    저화질 문제가 없어 1순위 엔진으로 사용합니다.
+    """
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key or api_key.startswith("your_"):
+        return False
+
+    model_name = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+    clean_prompt = prompt.replace("\n", " ").strip()
+    enhanced_prompt = (
+        f"{clean_prompt}. Vertical 9:16 portrait aspect ratio, ultra-high resolution, "
+        "photorealistic, cinematic lighting, sharp focus, rich detail, no text, no letters, "
+        "no watermark, no logo, no subtitles baked into the image."
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"    [AI-IMAGE] 나노바나나(Gemini 2.5 Flash Image) 생성 요청 중 (시도 {attempt}/{retries}): '{prompt[:40]}...'")
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=enhanced_prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT", "IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="9:16",
+                        image_size=os.getenv("GEMINI_IMAGE_SIZE", "2K"),
+                    ),
+                ),
+            )
+
+            image_bytes = None
+            for candidate in getattr(response, "candidates", None) or []:
+                for part in getattr(candidate.content, "parts", None) or []:
+                    inline_data = getattr(part, "inline_data", None)
+                    if inline_data and inline_data.data:
+                        image_bytes = inline_data.data
+                        break
+                if image_bytes:
+                    break
+
+            if image_bytes and len(image_bytes) > 10000:
+                with open(output_path, "wb") as f:
+                    f.write(image_bytes)
+                return True
+            print("    [WARN] 나노바나나 응답에 유효한 이미지 데이터가 없습니다.")
+        except Exception as e:
+            print(f"    [WARN] 나노바나나 생성 실패 (시도 {attempt}/{retries}): {e}")
+
+        if attempt < retries:
+            time.sleep(2 * attempt)
+    return False
 
 
 def generate_with_pollinations_flux(prompt: str, output_path: Path, retries: int = 3) -> bool:
@@ -136,8 +197,11 @@ def generate_scene_images(
     sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     can_use_vertex = (not force_mock) and bool(project_id) and bool(sa_path and os.path.isfile(sa_path))
 
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+    can_use_nanobanana = bool(gemini_api_key and not gemini_api_key.startswith("your_"))
+
     result = ImageGenResult()
-    print(f"[VISUAL] 총 {len(scenes)}개 씬 비주얼 생성 시작 (엔진: FLUX.1 / Imagen 3)...")
+    print(f"[VISUAL] 총 {len(scenes)}개 씬 비주얼 생성 시작 (엔진: 나노바나나 / FLUX.1 / Imagen 3)...")
 
     for sc in scenes:
         scene_id = getattr(sc, "scene_id", sc.get("scene_id") if isinstance(sc, dict) else 1)
@@ -148,10 +212,15 @@ def generate_scene_images(
         generated = False
 
         if not force_mock:
-            # 1. FLUX.1 고품질 생성 시도 (가장 안정적이고 고화질)
-            generated = generate_with_pollinations_flux(prompt, img_path)
+            # 1. 나노바나나(Gemini 2.5 Flash Image) 최우선 시도 (최고화질/프롬프트 반영도)
+            if can_use_nanobanana:
+                generated = generate_with_gemini_nanobanana(prompt, img_path)
 
-            # 2. Vertex AI Imagen 3 시도 (설정된 경우)
+            # 2. FLUX.1 시도 (나노바나나 실패 또는 키 미설정 시 대체)
+            if not generated:
+                generated = generate_with_pollinations_flux(prompt, img_path)
+
+            # 3. Vertex AI Imagen 3 시도 (설정된 경우)
             if not generated and can_use_vertex:
                 generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
 
