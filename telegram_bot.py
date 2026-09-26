@@ -2,11 +2,13 @@
 Telegram Reels Automation Unified Bot.
 Features:
 - Single process bot running 24/7 on Railway or local
-- SQLite state persistence (state.db) for pending proposals & daily schedule log
+- SQLite state persistence (state.db) for pending proposals, daily schedule, and last chat ID
 - In-process pipeline execution with concurrency lock (threading.Semaphore)
+- Dynamic chat_id support: automatically replies to the user who sent /generate
 - APScheduler for exact 17:30 KST daily proposal delivery
 - Cloud credentials bootstrap from GOOGLE_SERVICE_ACCOUNT_JSON
 - HTML message formatting for bulletproof Telegram delivery
+- Robust 409 Conflict backoff for rolling deployments
 """
 import os
 import sys
@@ -48,7 +50,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# In-process 파이프라인 함수
 from main import run_pipeline
 
 try:
@@ -57,10 +58,10 @@ try:
 except Exception:
     KST = datetime.timezone(datetime.timedelta(hours=9))
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-3.1-flash-lite"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+DEFAULT_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 MBTI_TYPES = [
@@ -94,6 +95,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS daily_schedule (
                 schedule_date TEXT PRIMARY KEY,
                 sent_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
             )
         """)
         conn.commit()
@@ -130,23 +137,46 @@ def is_daily_sent(date_str: str) -> bool:
         row = conn.execute("SELECT 1 FROM daily_schedule WHERE schedule_date = ?", (date_str,)).fetchone()
         return bool(row)
 
+def save_last_chat_id(chat_id: str | int):
+    if not chat_id:
+        return
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("INSERT OR REPLACE INTO bot_settings VALUES ('last_chat_id', ?)", (str(chat_id),))
+        conn.commit()
+
+def get_last_chat_id() -> str:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT value FROM bot_settings WHERE key = 'last_chat_id'").fetchone()
+        if row:
+            return row[0]
+    return DEFAULT_CHAT_ID
+
 
 # ─────────────────────────────────────────────────────────────
-# 2. 텔레그램 유틸 (HTML 모드로 특수문자 충돌 원천 차단)
+# 2. 텔레그램 유틸
 # ─────────────────────────────────────────────────────────────
-def tg_send(text: str, reply_markup: dict = None) -> dict:
+def tg_send(text: str, reply_markup: dict = None, chat_id: str | int = None) -> dict:
+    target_chat = str(chat_id) if chat_id else (DEFAULT_CHAT_ID or get_last_chat_id())
+    if not target_chat:
+        print("[TG][ERROR] 수신 대상 chat_id가 설정되지 않아 메시지를 보낼 수 없습니다.")
+        return {}
+
     payload = {
-        "chat_id": CHAT_ID,
+        "chat_id": target_chat,
         "text": text,
         "parse_mode": "HTML",
     }
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
+
     try:
         r = requests.post(f"{API_URL}/sendMessage", json=payload, timeout=15)
-        return r.json()
+        res = r.json()
+        if not res.get("ok"):
+            print(f"[TG][ERROR] sendMessage 실패 (status={r.status_code}): {res}")
+        return res
     except Exception as e:
-        print(f"[TG][ERROR] 전송 실패: {e}")
+        print(f"[TG][ERROR] 전송 중 예외 발생: {e}")
         return {}
 
 def tg_answer(callback_id: str, text: str = "선택 확인!"):
@@ -159,7 +189,8 @@ def tg_answer(callback_id: str, text: str = "선택 확인!"):
     except Exception:
         pass
 
-def get_updates(offset: int) -> list:
+def get_updates(offset: int) -> tuple[list, int]:
+    """반환값: (updates_list, http_status_code)"""
     try:
         r = requests.get(
             f"{API_URL}/getUpdates",
@@ -171,10 +202,12 @@ def get_updates(offset: int) -> list:
             timeout=30
         )
         if r.ok:
-            return r.json().get("result", [])
+            return r.json().get("result", []), r.status_code
+        else:
+            return [], r.status_code
     except Exception as e:
-        print(f"[TG][WARN] 폴링 오류: {e}")
-    return []
+        print(f"[TG][WARN] 폴링 네트워크 오류: {e}")
+        return [], 0
 
 
 # ─────────────────────────────────────────────────────────────
@@ -198,16 +231,18 @@ def gemini_plan(prompt: str) -> dict:
                 return parsed[0]
             if isinstance(parsed, dict):
                 return parsed
+        else:
+            print(f"[GEMINI][WARN] API 응답 에러 (code={r.status_code}): {r.text[:200]}")
     except Exception as e:
-        print(f"[GEMINI] 기획안 생성 실패: {e}")
+        print(f"[GEMINI] 기획안 생성 예외: {e}")
     return {}
 
 
-def generate_and_send_proposals():
+def generate_and_send_proposals(chat_id: str | int = None):
     mbti_a = random.choice(MBTI_TYPES)
     el_b = random.choice(FIVE_ELEMENTS)
     print(f"[BOT] 기획안 생성 시작 -> A: {mbti_a}, B: {el_b}")
-    tg_send("🔮 <b>오늘의 사주/MBTI 릴스 기획안을 생성 중입니다...</b> (약 10초)")
+    tg_send("🔮 <b>오늘의 사주/MBTI 릴스 기획안을 생성 중입니다...</b> (약 10초)", chat_id=chat_id)
 
     pa = gemini_plan(
         f"인스타그램 릴스용 {mbti_a} MBTI x 사주 숏폼 대본 기획안을 단일 JSON 객체 하나로 응답하세요. "
@@ -256,16 +291,16 @@ def generate_and_send_proposals():
             [{"text": "🔄 새 기획안 다시 생성", "callback_data": "regenerate"}],
         ]
     }
-    tg_send(msg, reply_markup=markup)
+    tg_send(msg, reply_markup=markup, chat_id=chat_id)
     print(f"[BOT] 기획안 발송 완료 (A: {title_a}, B: {title_b})")
 
 
 # ─────────────────────────────────────────────────────────────
 # 4. In-Process 파이프라인 실행
 # ─────────────────────────────────────────────────────────────
-def execute_pipeline_task(plan: dict):
+def execute_pipeline_task(plan: dict, chat_id: str | int = None):
     if not PIPELINE_LOCK.acquire(blocking=False):
-        tg_send("⚠️ 현재 다른 영상 제작/업로드 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.")
+        tg_send("⚠️ 현재 다른 영상 제작/업로드 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.", chat_id=chat_id)
         return
 
     title = plan.get("title", "릴스 영상")
@@ -283,7 +318,8 @@ def execute_pipeline_task(plan: dict):
                 f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"
                 f"5. Google Drive 업로드\n"
                 f"6. Instagram 릴스 자동 게시\n\n"
-                f"⏳ 약 1~3분 소요됩니다."
+                f"⏳ 약 1~3분 소요됩니다.",
+                chat_id=chat_id
             )
 
             res = run_pipeline(
@@ -308,20 +344,20 @@ def execute_pipeline_task(plan: dict):
             if gdrive.get("folder_link"):
                 lines.append(f"☁️ <b>Google Drive:</b> <a href=\"{gdrive['folder_link']}\">폴더 바로가기</a>")
             elif gdrive.get("error"):
-                lines.append(f"⚠️ <b>Drive 업로드 참고:</b> {html.escape(gdrive['error'][:150])}")
+                lines.append(f"⚠️ <b>Drive 업로드 참고:</b> {html.escape(str(gdrive['error'])[:150])}")
 
             if insta.get("link"):
                 lines.append(f"📸 <b>Instagram 릴스:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
             elif insta.get("error"):
-                lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(insta['error'][:150])}")
+                lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:150])}")
             elif insta.get("skipped"):
                 lines.append("ℹ️ <b>Instagram:</b> 영상 직링크 미제공으로 건너뜀")
 
-            tg_send("\n".join(lines))
+            tg_send("\n".join(lines), chat_id=chat_id)
 
         except Exception as e:
             print(f"[PIPELINE][ERROR] {e}")
-            tg_send(f"❌ <b>영상 제작 중 오류가 발생했습니다:</b>\n<code>{html.escape(str(e)[:400])}</code>")
+            tg_send(f"❌ <b>영상 제작 중 오류가 발생했습니다:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
         finally:
             PIPELINE_LOCK.release()
 
@@ -331,21 +367,21 @@ def execute_pipeline_task(plan: dict):
 # ─────────────────────────────────────────────────────────────
 # 5. 콜백 처리
 # ─────────────────────────────────────────────────────────────
-def handle_callback(cq: dict):
+def handle_callback(cq: dict, chat_id: str | int = None):
     cbid = cq.get("id")
     data = cq.get("data", "")
     tg_answer(cbid, "선택 확인!")
 
     if data == "regenerate":
-        generate_and_send_proposals()
+        generate_and_send_proposals(chat_id=chat_id)
         return
 
     plan = get_proposal(data)
     if not plan:
-        tg_send("⚠️ 기획안 정보가 만료되었거나 찾을 수 없습니다. /generate 로 다시 요청하세요.")
+        tg_send("⚠️ 기획안 정보가 만료되었거나 찾을 수 없습니다. /generate 로 다시 요청하세요.", chat_id=chat_id)
         return
 
-    execute_pipeline_task(plan)
+    execute_pipeline_task(plan, chat_id=chat_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -359,7 +395,6 @@ def scheduled_daily_job():
         mark_daily_sent(today_str)
     else:
         print(f"[SCHEDULER] 오늘({today_str})은 이미 발송되었습니다.")
-
 
 def start_scheduler():
     try:
@@ -387,39 +422,68 @@ def run_bot():
         print("[ERROR] TELEGRAM_BOT_TOKEN 이 설정되지 않았습니다.")
         sys.exit(1)
 
-    print(f"[BOT] 🚀 MBTI×사주 릴스 봇 가동 (Chat ID: {CHAT_ID})")
+    print(f"[BOT] 🚀 MBTI×사주 릴스 봇 가동 (Chat ID: {DEFAULT_CHAT_ID or '미지정 - 사용자 입력시 자동인식'})")
     start_scheduler()
 
-    tg_send(
-        "🤖 <b>MBTI×사주 릴스 자동화 시스템 가동 완료!</b>\n\n"
-        "• 매일 <b>17:30 KST</b>에 기획안 A안/B안이 자동 발송됩니다.\n"
-        "• 지금 바로 받으려면 <b>/generate</b> 를 입력하세요.\n"
-        "• 버튼 클릭 시 <b>대본→TTS→영상→Drive→인스타 릴스</b>가 원스톱으로 처리됩니다."
-    )
+    # 가동 알림 전송 (chat_id가 있는 경우)
+    if DEFAULT_CHAT_ID or get_last_chat_id():
+        tg_send(
+            "🤖 <b>MBTI×사주 릴스 자동화 시스템 가동 완료!</b>\n\n"
+            "• 매일 <b>17:30 KST</b>에 기획안 A안/B안이 자동 발송됩니다.\n"
+            "• 지금 바로 받으려면 <b>/generate</b> 를 입력하세요.\n"
+            "• 버튼 클릭 시 <b>대본→TTS→영상→Drive→인스타 릴스</b>가 원스톱으로 처리됩니다."
+        )
 
-    old = get_updates(-1)
-    last_id = old[-1]["update_id"] if old else 0
+    last_id = 0
 
     while True:
         try:
-            updates = get_updates(last_id + 1)
+            updates, status = get_updates(last_id + 1)
+
+            # 409 Conflict: 롤링 배포 중 이전 컨테이너가 아직 종료되지 않은 경우
+            if status == 409:
+                print("[TG] 다른 인스턴스와 일시적 충돌(409). 5초 대기 후 재시도...")
+                time.sleep(5)
+                continue
+
             for up in updates:
                 last_id = up["update_id"]
+
+                # 인라인 버튼 클릭 이벤트
                 if "callback_query" in up:
-                    handle_callback(up["callback_query"])
+                    cq = up["callback_query"]
+                    cq_chat = cq.get("message", {}).get("chat", {}).get("id")
+                    if cq_chat:
+                        save_last_chat_id(cq_chat)
+                    handle_callback(cq, chat_id=cq_chat)
+
+                # 텍스트 메시지 수신 이벤트
                 elif "message" in up:
-                    txt = up["message"].get("text", "").strip()
-                    if txt in ("/start", "/help"):
+                    msg = up["message"]
+                    sender_chat = msg.get("chat", {}).get("id")
+                    if sender_chat:
+                        save_last_chat_id(sender_chat)
+
+                    txt = msg.get("text", "").strip()
+
+                    # /start, /help 명령어
+                    if txt.startswith("/start") or txt.startswith("/help"):
                         tg_send(
-                            "🔮 <b>MBTI×사주 릴스 자동화 봇 명령어</b>\n\n"
+                            "🔮 <b>MBTI×사주 릴스 자동화 봇</b>\n\n"
                             "/generate — 기획안 A/B안 즉시 생성\n"
-                            "/status — 현재 시스템 상태 확인"
+                            "/status — 현재 시스템 상태 확인",
+                            chat_id=sender_chat
                         )
-                    elif txt == "/generate":
-                        generate_and_send_proposals()
-                    elif txt == "/status":
+
+                    # /generate 명령어 (공백이나 @봇이름 붙은 경우 모두 지원)
+                    elif txt.startswith("/generate"):
+                        generate_and_send_proposals(chat_id=sender_chat)
+
+                    # /status 명령어
+                    elif txt.startswith("/status"):
                         now_kst = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
-                        tg_send(f"🟢 <b>시스템 정상 가동 중</b>\n현재 시각: {now_kst}")
+                        tg_send(f"🟢 <b>시스템 정상 가동 중</b>\n현재 시각: {now_kst}", chat_id=sender_chat)
+
         except Exception as e:
             print(f"[LOOP][ERROR] {e}")
 
