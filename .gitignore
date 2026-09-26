@@ -7,6 +7,7 @@ insta-at-*.json
 credentials*.json
 client_secret*.json
 service_account*.json
+token.json
 
 # Python Virtual Environments
 .venv/

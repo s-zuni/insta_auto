@@ -8,6 +8,7 @@ import sys
 import io
 import time
 import requests
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 from PIL import Image, ImageDraw, ImageFont
@@ -27,28 +28,42 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def generate_with_pollinations_flux(prompt: str, output_path: Path) -> bool:
+@dataclass
+class ImageGenResult:
+    image_paths: List[str] = field(default_factory=list)
+    placeholder_scene_ids: List[int] = field(default_factory=list)
+
+    @property
+    def placeholder_count(self) -> int:
+        return len(self.placeholder_scene_ids)
+
+
+def generate_with_pollinations_flux(prompt: str, output_path: Path, retries: int = 3) -> bool:
     """
     Pollinations FLUX.1 엔진을 사용하여 고화질 9:16 세로형(1080x1920) 이미지를 생성합니다.
-    API 키 없이 안정적으로 고품질 비주얼을 제공합니다.
+    API 키 없이 안정적으로 고품질 비주얼을 제공합니다. 일시적 네트워크/지연 오류에 대비해
+    지수 백오프로 재시도합니다.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        clean_prompt = prompt.replace("\n", " ").strip()
-        enhanced_prompt = f"{clean_prompt}, cinematic aesthetic, mystical mood, 8k resolution, vertical 9:16 ratio, hyperrealistic"
-        encoded = requests.utils.quote(enhanced_prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&nologo=true&model=flux"
-        
-        print(f"    [AI-IMAGE] FLUX.1 생성 요청 중: '{prompt[:40]}...'")
-        r = requests.get(url, timeout=45)
-        if r.status_code == 200 and len(r.content) > 10000:
-            with open(output_path, "wb") as f:
-                f.write(r.content)
-            return True
-        else:
+    clean_prompt = prompt.replace("\n", " ").strip()
+    enhanced_prompt = f"{clean_prompt}, cinematic aesthetic, mystical mood, 8k resolution, vertical 9:16 ratio, hyperrealistic"
+    encoded = requests.utils.quote(enhanced_prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&nologo=true&model=flux"
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"    [AI-IMAGE] FLUX.1 생성 요청 중 (시도 {attempt}/{retries}): '{prompt[:40]}...'")
+            r = requests.get(url, timeout=60)
+            if r.status_code == 200 and len(r.content) > 10000:
+                with open(output_path, "wb") as f:
+                    f.write(r.content)
+                return True
             print(f"    [WARN] FLUX 응답 비정상 (code={r.status_code}, len={len(r.content)})")
-    except Exception as e:
-        print(f"    [WARN] FLUX 생성 실패: {e}")
+        except Exception as e:
+            print(f"    [WARN] FLUX 생성 실패 (시도 {attempt}/{retries}): {e}")
+
+        if attempt < retries:
+            time.sleep(3 * attempt)
     return False
 
 
@@ -107,7 +122,7 @@ def generate_scene_images(
     scenes: list,
     output_dir: Optional[str | Path] = None,
     force_mock: bool = False
-) -> List[str]:
+) -> "ImageGenResult":
     """씬 리스트의 visual_prompt를 바탕으로 9:16 고화질 비주얼을 생성합니다."""
     if output_dir is None:
         output_dir = Path("assets/images")
@@ -115,13 +130,13 @@ def generate_scene_images(
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "proud-climber-458207-e8")
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     location = os.getenv("GCP_LOCATION", "us-central1")
     model_name = os.getenv("IMAGEN_MODEL", "imagen-3.0-generate-002")
     sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    can_use_vertex = (not force_mock) and bool(sa_path and os.path.isfile(sa_path))
+    can_use_vertex = (not force_mock) and bool(project_id) and bool(sa_path and os.path.isfile(sa_path))
 
-    image_paths: List[str] = []
+    result = ImageGenResult()
     print(f"[VISUAL] 총 {len(scenes)}개 씬 비주얼 생성 시작 (엔진: FLUX.1 / Imagen 3)...")
 
     for sc in scenes:
@@ -135,14 +150,15 @@ def generate_scene_images(
         if not force_mock:
             # 1. FLUX.1 고품질 생성 시도 (가장 안정적이고 고화질)
             generated = generate_with_pollinations_flux(prompt, img_path)
-            
+
             # 2. Vertex AI Imagen 3 시도 (설정된 경우)
             if not generated and can_use_vertex:
                 generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
 
         if not generated:
-            print(f"  [VISUAL] 씬 {scene_id} 백드롭 생성")
+            print(f"  [VISUAL] 씬 {scene_id} 백드롭 생성 (FLUX/Imagen 모두 실패)")
             create_aesthetic_placeholder(scene_id, narration, img_path)
+            result.placeholder_scene_ids.append(scene_id)
 
         # 1080x1920 해상도 보정
         try:
@@ -153,8 +169,11 @@ def generate_scene_images(
         except Exception:
             pass
 
-        image_paths.append(str(img_path.resolve()))
+        result.image_paths.append(str(img_path.resolve()))
         print(f"  ✅ 씬 {scene_id} 이미지 준비 완료 -> {img_path.name}")
 
-    print(f"[SUCCESS] 모든 씬({len(image_paths)}장) 고화질 비주얼 생성 완료!")
-    return image_paths
+    if result.placeholder_scene_ids:
+        print(f"[WARN] {result.placeholder_count}/{len(scenes)}개 씬이 백드롭 플레이스홀더로 대체되었습니다 (씬: {result.placeholder_scene_ids}).")
+    else:
+        print(f"[SUCCESS] 모든 씬({len(result.image_paths)}장) 고화질 비주얼 생성 완료!")
+    return result

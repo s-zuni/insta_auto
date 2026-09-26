@@ -335,11 +335,19 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
             v_path = res.get("video_path", "")
             gdrive = res.get("gdrive", {})
             insta = res.get("instagram", {})
+            placeholder_count = res.get("placeholder_scene_count", 0)
+            total_scenes = res.get("total_scene_count", 0)
 
             lines = [
                 f"🎉 <b>[{html.escape(title)}] 릴스 파이프라인 완료!</b>\n",
                 f"📁 <b>로컬 파일:</b> <code>{html.escape(str(v_path))}</code>"
             ]
+
+            if placeholder_count:
+                lines.append(
+                    f"⚠️ <b>이미지 경고:</b> {placeholder_count}/{total_scenes}개 씬에서 "
+                    f"AI 이미지 생성이 실패해 단색 배경(플레이스홀더)으로 대체되었습니다."
+                )
 
             if gdrive.get("folder_link"):
                 lines.append(f"☁️ <b>Google Drive:</b> <a href=\"{gdrive['folder_link']}\">폴더 바로가기</a>")

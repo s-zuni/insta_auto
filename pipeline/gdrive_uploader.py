@@ -1,10 +1,12 @@
 ﻿"""
 Google Drive Automatic Uploader Module for Instagram Reels Pipeline.
-Uses Service Account credentials to upload videos, captions, and metadata.
+Uses OAuth user credentials (not a service account) to upload videos, captions, and
+metadata, since service accounts have 0-byte storage quota on personal Gmail Drives.
 Creates date-based subfolders and sets public read permissions for direct download.
 """
 import os
 import sys
+import json
 import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -24,17 +26,54 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+DRIVE_OAUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+
+def _load_oauth_credentials():
+    """
+    사용자(OAuth) 인증 정보로 Credentials 객체를 만듭니다.
+    서비스 계정은 개인 Gmail 드라이브에서 저장 용량이 0바이트라 파일 업로드가 항상
+    403 storageQuotaExceeded로 실패하기 때문에(2020년 구글 정책 변경), 반드시 실제
+    사용자 계정으로 인증한 OAuth 자격 증명을 사용해야 합니다.
+
+    자격 증명은 두 가지 방식 중 하나로 제공합니다:
+    1) GOOGLE_OAUTH_TOKEN_JSON 환경 변수 (Railway 등 배포 환경에 권장) - 전체 토큰 JSON 문자열
+    2) GOOGLE_OAUTH_TOKEN_PATH 환경 변수 또는 기본값 'token.json' 파일 (로컬 개발용)
+
+    두 방식 모두 `pipeline/gdrive_oauth_setup.py`를 한 번 실행해서 생성합니다.
+    """
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+
+    token_json = os.getenv("GOOGLE_OAUTH_TOKEN_JSON", "").strip()
+    token_path = os.getenv("GOOGLE_OAUTH_TOKEN_PATH", "").strip() or str(PROJECT_ROOT / "token.json")
+
+    if token_json:
+        info = json.loads(token_json)
+        creds = Credentials.from_authorized_user_info(info, scopes=DRIVE_OAUTH_SCOPES)
+    elif os.path.isfile(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, scopes=DRIVE_OAUTH_SCOPES)
+    else:
+        raise FileNotFoundError(
+            "Google Drive OAuth 토큰을 찾을 수 없습니다. "
+            "먼저 'python pipeline/gdrive_oauth_setup.py' 를 로컬에서 실행해 "
+            "1회 로그인하고, 생성된 token.json 내용을 GOOGLE_OAUTH_TOKEN_JSON 환경 변수로 등록하세요."
+        )
+
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # 로컬 파일 모드일 때만 갱신된 토큰을 다시 저장합니다.
+        if not token_json and os.path.isfile(token_path):
+            Path(token_path).write_text(creds.to_json(), encoding="utf-8")
+
+    return creds
+
+
 def get_drive_service():
-    """Google Drive API 서비스 객체를 서비스 계정 증명으로 생성합니다."""
-    import google.auth
+    """Google Drive API 서비스 객체를 사용자 OAuth 자격 증명으로 생성합니다."""
     from googleapiclient.discovery import build
 
-    sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if not sa_path or not os.path.isfile(sa_path):
-        raise FileNotFoundError(f"서비스 계정 키 파일을 찾을 수 없습니다: {sa_path}")
-
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    credentials = google.auth.load_credentials_from_file(sa_path, scopes=scopes)[0]
+    credentials = _load_oauth_credentials()
     return build("drive", "v3", credentials=credentials)
 
 
@@ -188,10 +227,10 @@ def upload_reels_assets_to_drive(
         err_msg = str(e)
         if "storageQuotaExceeded" in err_msg:
             print("\n  💡 [안내] Google Drive 저장 용량 제한 에러 발생")
-            print("     이유: 구글 서비스 계정(Bot)은 자체 용량이 0 Byte입니다.")
-            print("     해결책: 내 구글 드라이브에 폴더 생성 -> '공유' 클릭")
-            print("     -> 서비스 계정 이메일에 '편집자' 권한 부여")
-            print("     -> 폴더 URL 주소의 폴더 ID를 .env 파일의 GDRIVE_FOLDER_ID= 에 입력하면 완료!\n")
+            print("     이유: 서비스 계정으로 업로드를 시도했습니다. 서비스 계정은 자체 용량이 0 Byte입니다.")
+            print("     해결책: 'python pipeline/gdrive_oauth_setup.py' 를 실행해 사용자 OAuth로 재인증하세요.\n")
+        elif "OAuth" in err_msg or "token.json" in err_msg:
+            print(f"\n  💡 [안내] {err_msg}\n")
         else:
             print(f"[ERROR] Google Drive 업로드 중 오류 발생: {e}")
         return {"error": err_msg}

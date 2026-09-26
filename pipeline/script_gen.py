@@ -66,15 +66,17 @@ def get_gemini_client():
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GCP_LOCATION", "us-central1")
     service_account = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    force_vertex = os.getenv("USE_VERTEX_GEMINI", "").strip().lower() in ("1", "true", "yes")
 
-    # 1. Vertex AI 모드 (서비스 계정 키가 명시되어 있거나 API 키가 없는 경우)
+    # 1. AI Studio API Key 모드 (기본 우선순위: 서비스 계정 키가 있어도 Vertex AI API가
+    #    비활성화되어 있을 수 있으므로, 명시적으로 강제하지 않는 한 API 키를 우선 사용합니다.)
+    if api_key and not api_key.startswith("your_") and not force_vertex:
+        return genai.Client(api_key=api_key)
+
+    # 2. Vertex AI 모드 (USE_VERTEX_GEMINI=true 로 명시했거나 API 키가 없는 경우)
     if service_account and os.path.isfile(service_account):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account
         return genai.Client(vertexai=True, project=project, location=location)
-
-    # 2. AI Studio API Key 모드
-    if api_key and not api_key.startswith("your_"):
-        return genai.Client(api_key=api_key)
 
     # 3. 환경 변수 기본값 시도
     return genai.Client()

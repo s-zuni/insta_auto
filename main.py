@@ -26,7 +26,7 @@ from utils.ffmpeg_check import check_ffmpeg
 from pipeline.script_gen import generate_script, create_sample_script, ReelsScript
 from pipeline.mbti_saju_content import generate_mbti_saju_script
 from pipeline.tts_engine import generate_speech, FullAudioResult
-from pipeline.visual_gen import generate_scene_images
+from pipeline.visual_gen import generate_scene_images, ImageGenResult
 from pipeline.composer import compose_reels_video
 from pipeline.gdrive_uploader import upload_reels_assets_to_drive
 from pipeline.insta_publisher import publish_reel_to_instagram
@@ -85,7 +85,8 @@ def run_pipeline(
     # 3. 비주얼 생성
     print("\n[3/6] 🎨 9:16 비주얼 에셋 생성 중...")
     t0 = time.time()
-    image_paths = generate_scene_images(script.scenes, force_mock=mock_images)
+    visual_result: ImageGenResult = generate_scene_images(script.scenes, force_mock=mock_images)
+    image_paths = visual_result.image_paths
     print(f"  ✅ 비주얼 준비 완료 ({time.time() - t0:.1f}초)")
 
     # 4. 영상 합성
@@ -157,7 +158,9 @@ def run_pipeline(
         "total_duration": audio_result.total_duration,
         "caption": script.instagram_caption,
         "gdrive": drive_result,
-        "instagram": insta_result
+        "instagram": insta_result,
+        "placeholder_scene_count": visual_result.placeholder_count,
+        "total_scene_count": len(image_paths),
     }
 
 
