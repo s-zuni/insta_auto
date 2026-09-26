@@ -1,10 +1,10 @@
 """
 Video Composition Engine using FFmpeg.
 Features:
-- Dynamic Ken Burns effect (alternating zoom-in / zoom-out) for 9:16 vertical video (1080x1920, 30fps)
-- Perfect audio-video sync tailored to scene-by-scene audio durations
-- Automatic .ass / .srt subtitle generation with styled typography for Instagram Reels
-- Subtitle hardcoding / burn-in and export to assets/output/final_reel.mp4
+- Smooth Ken Burns motion effect (zoom-in / zoom-out per scene)
+- High-efficiency encoding optimized for Railway/Cloud and Local environments
+- ASS / SRT subtitle generation and hardsub burn-in
+- 1080x1920 9:16 vertical Reels formatting
 """
 import os
 import sys
@@ -30,36 +30,36 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import get_ffmpeg_path
 
 
-def _get_field(obj, field_name, default=None):
-    if hasattr(obj, field_name):
-        return getattr(obj, field_name)
-    if isinstance(obj, dict):
-        return obj.get(field_name, default)
-    return default
-
-
 def format_ass_timestamp(seconds: float) -> str:
-    """초(float)를 ASS 자막 형식(H:MM:SS.cs)으로 변환합니다."""
+    """초 단위를 ASS 타임스탬프 형식 (H:MM:SS.cs)으로 변환"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     centis = int(round((seconds - int(seconds)) * 100))
-    if centis >= 100:
+    if centis == 100:
         secs += 1
         centis = 0
     return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
 def format_srt_timestamp(seconds: float) -> str:
-    """초(float)를 SRT 자막 형식(HH:MM:SS,mmm)으로 변환합니다."""
+    """초 단위를 SRT 타임스탬프 형식 (HH:MM:SS,mmm)으로 변환"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     millis = int(round((seconds - int(seconds)) * 1000))
-    if millis >= 1000:
+    if millis == 1000:
         secs += 1
         millis = 0
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _get_field(obj, key, default=None):
+    if hasattr(obj, key):
+        return getattr(obj, key)
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default
 
 
 def generate_subtitles(
@@ -68,12 +68,12 @@ def generate_subtitles(
     output_srt_path: Optional[Path] = None
 ):
     """
-    씬별 오디오 타이밍 정보를 기반으로 가독성 높은 ASS 및 SRT 자막 파일을 생성합니다.
-    인스타그램 UI에 가려지지 않도록 하단 마진 300px, 굵은 테두리와 섀도우를 적용합니다.
+    씬별 타임스탬프와 대사를 바탕으로 모바일 가독성이 뛰어난 ASS 및 SRT 자막을 생성합니다.
     """
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_srt_path:
+        output_srt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. ASS 자막 헤더 및 스타일 정의 (Reels에 최적화된 1080x1920 해상도 기준)
     ass_header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -82,7 +82,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,Malgun Gothic,60,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,6,3,2,80,80,320,1
+Style: ReelsSub,Sans,62,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -97,14 +97,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         duration = float(_get_field(sc, "duration", 0.0))
         narration = str(_get_field(sc, "narration", "")).strip()
 
-        # 대사가 긴 경우 시각적 피로도를 줄이기 위해 2분할
         words = narration.split()
         if len(words) > 7 and duration > 3.0:
             mid = len(words) // 2
             part1 = " ".join(words[:mid])
             part2 = " ".join(words[mid:])
             mid_t = start_t + (duration * 0.5)
-
             chunks = [
                 (start_t, mid_t, part1),
                 (mid_t, end_t, part2)
@@ -115,7 +113,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for c_start, c_end, c_text in chunks:
             ass_start = format_ass_timestamp(c_start)
             ass_end = format_ass_timestamp(c_end)
-            # 가독성을 위해 노란색 포인트 강조 태그 지원 예시 ({\\c&H00E5FF&}...)
             ass_dialogues.append(f"Dialogue: 0,{ass_start},{ass_end},ReelsSub,,0,0,0,,{c_text}")
 
             srt_start = format_srt_timestamp(c_start)
@@ -143,25 +140,18 @@ def render_scene_clip(
     fps: int = 30
 ):
     """
-    단일 씬에 대해 Ken Burns 효과와 오디오를 입혀 1080x1920 30fps 비디오 클립을 렌더링합니다.
-    - 홀수 씬: 서서히 줌인 (1.0 -> 1.10)
-    - 짝수 씬: 서서히 줌아웃 (1.10 -> 1.0)
+    단일 씬에 대해 Ken Burns 효과와 오디오를 합성합니다.
+    d=1 설정을 통해 OOM(메모리 초과) 및 프레임 폭발 현상을 방지합니다.
     """
-    total_frames = int(duration * fps) + 2
-
-    # 줌인 또는 줌아웃 표현식
     if scene_id % 2 == 1:
-        # Zoom-in
-        zoom_expr = f"min(pzoom+0.0010,1.12)"
+        zoom_expr = "min(pzoom+0.0015,1.15)"
     else:
-        # Zoom-out
-        zoom_expr = f"max(1.12-0.0010*on,1.0)"
+        zoom_expr = "max(1.15-0.0015*on/100,1.0)"
 
-    # FFmpeg 필터그래프
     filter_graph = (
-        f"scale=1080:1920:force_original_aspect_ratio=increase,"
-        f"crop=1080:1920,"
-        f"zoompan=z='{zoom_expr}':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={fps}"
+        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        f"zoompan=z='{zoom_expr}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={fps}"
     )
 
     cmd = [
@@ -169,11 +159,11 @@ def render_scene_clip(
         "-y",
         "-loop", "1",
         "-t", f"{duration:.3f}",
-        "-i", image_path,
-        "-i", audio_path,
+        "-i", str(image_path),
+        "-i", str(audio_path),
         "-vf", filter_graph,
         "-c:v", "libx264",
-        "-tune", "stillimage",
+        "-preset", "veryfast",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
@@ -181,7 +171,10 @@ def render_scene_clip(
         str(output_clip_path)
     ]
 
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode != 0:
+        err_msg = res.stderr[-600:] if res.stderr else "알 수 없는 FFmpeg 오류"
+        raise RuntimeError(f"FFmpeg 씬 {scene_id} 클립 생성 실패 (code {res.returncode}):\n{err_msg}")
 
 
 def compose_reels_video(
@@ -230,11 +223,11 @@ def compose_reels_video(
     # 2. 클립 목록 병합 (Concat demuxer)
     concat_list_file = temp_dir / "concat_list.txt"
     with open(concat_list_file, "w", encoding="utf-8") as f:
-        for c in clip_paths:
-            escaped = str(c.resolve()).replace("\\", "/")
-            f.write(f"file '{escaped}'\n")
+        for cp in clip_paths:
+            escaped_path = str(cp.resolve()).replace("\\", "/")
+            f.write(f"file '{escaped_path}'\n")
 
-    merged_temp_video = temp_dir / "merged_no_sub.mp4"
+    merged_temp_video = temp_dir / "merged_no_subs.mp4"
     print("[COMPOSER] 씬별 클립을 연속 영상으로 병합 중...")
     concat_cmd = [
         ffmpeg_bin,
@@ -245,7 +238,9 @@ def compose_reels_video(
         "-c", "copy",
         str(merged_temp_video)
     ]
-    subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    res_concat = subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res_concat.returncode != 0:
+        raise RuntimeError(f"FFmpeg 클립 병합 실패:\n{res_concat.stderr[-600:]}")
 
     # 3. 자막 파일 생성 (.ass 및 .srt)
     subtitles_dir = Path("assets/subtitles")
@@ -255,7 +250,6 @@ def compose_reels_video(
 
     # 4. 자막 번인(Hardsub) 최종 인코딩
     print(f"[COMPOSER] 자막 하드코딩 및 최종 릴스 렌더링 -> {output_video_path}...")
-    # FFmpeg의 ass 필터는 윈도우 경로에서 드라이브 콜론(:)과 역슬래시(\) 이스케이프가 필요합니다.
     escaped_ass = str(ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
     subtitle_filter = f"ass='{escaped_ass}'"
 
@@ -265,13 +259,19 @@ def compose_reels_video(
         "-i", str(merged_temp_video),
         "-vf", subtitle_filter,
         "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "19",
+        "-preset", "veryfast",
+        "-crf", "20",
         "-c:a", "aac",
         "-b:a", "192k",
         str(output_video_path)
     ]
-    subprocess.run(final_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    res_final = subprocess.run(final_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
+    # 만약 ass 필터가 지원되지 않거나 폰트 문제로 실패한 경우 자막 없이 원본 저장
+    if res_final.returncode != 0:
+        print(f"  [WARN] 자막 번인 실패 ({res_final.stderr[-300:]}). 무자막 원본으로 대체합니다.")
+        import shutil
+        shutil.copy2(merged_temp_video, output_video_path)
 
     # 임시 파일 정리
     if not keep_temp:
@@ -288,25 +288,3 @@ def compose_reels_video(
 
     print(f"[SUCCESS] 인스타그램 릴스 최종 영상 합성 완료!\n  -> {output_video_path.resolve()}")
     return output_video_path.resolve()
-
-
-if __name__ == "__main__":
-    # 이전 단계에서 생성된 에셋으로 합성 검증
-    from pipeline.tts_engine import FullAudioResult
-
-    timing_file = Path("assets/audio/timing_info.json")
-    if not timing_file.is_file():
-        print("[ERROR] assets/audio/timing_info.json 파일이 없습니다. tts_engine을 먼저 실행하세요.")
-        sys.exit(1)
-
-    with open(timing_file, "r", encoding="utf-8") as f:
-        data = json.loads(f.read())
-        audio_info = FullAudioResult.model_validate(data)
-
-    img_paths = [
-        str(Path(f"assets/images/scene_{sc.scene_id:02d}.jpg").resolve())
-        for sc in audio_info.scene_results
-    ]
-
-    out_path = compose_reels_video(img_paths, audio_info.scene_results)
-    print(f"\n최종 비디오 생성 확인: {out_path}")
