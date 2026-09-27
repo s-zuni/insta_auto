@@ -12,7 +12,7 @@ import requests
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -57,65 +57,73 @@ def compose_reels_frame(
         CANVAS_W, CANVAS_H = 1080, 1920
         IMG_H = 608  # 1080 * 9 / 16 (반올림)
         ACCENT = (255, 187, 64)
-        BG_TOP = (17, 18, 28)
-        BG_BOTTOM = (8, 8, 13)
+        BG_DARK = (14, 16, 26)
 
         raw_img = Image.open(image_path).convert("RGB")
         img_16_9 = raw_img.resize((CANVAS_W, IMG_H), Image.Resampling.LANCZOS)
 
-        # 1. 세로 그라디언트 배경 (블러 처리된 사진 대신 깔끔한 다크 톤 배경 사용)
-        bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_TOP)
-        draw = ImageDraw.Draw(bg)
-        for y in range(CANVAS_H):
-            ratio = y / CANVAS_H
-            r = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * ratio)
-            g = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * ratio)
-            b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * ratio)
-            draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
+        # 1. 1080x1920 블러 처리된 사진 + 어두운 틴트 오버레이 배경 (또는 깔끔한 다크 그라디언트)
+        bg = raw_img.resize((CANVAS_W, CANVAS_H), Image.Resampling.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
+        dark_overlay = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_DARK)
+        bg = Image.blend(bg, dark_overlay, alpha=0.75)
 
-        # 2. 폰트 준비
+        draw = ImageDraw.Draw(bg)
+
+        # 2. 폰트 준비 (상단 주제 70pt 내외)
         font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
         font_file = str(font_path) if font_path.is_file() else None
         try:
-            tag_font = ImageFont.truetype(font_file, 30) if font_file else ImageFont.load_default()
-            title_font = ImageFont.truetype(font_file, 56) if font_file else ImageFont.load_default()
+            tag_font = ImageFont.truetype(font_file, 32) if font_file else ImageFont.load_default()
+            title_font = ImageFont.truetype(font_file, 70) if font_file else ImageFont.load_default()
         except Exception:
             tag_font = ImageFont.load_default()
             title_font = ImageFont.load_default()
 
-        # 3. 제목을 실제 렌더 폭(픽셀) 기준으로 줄바꿈 (최대 3줄, 카드 박스 없이 배경에 직접 배치)
+        # 3. 카테고리 태그 (Y: 약 195px 지점)
+        tag_text = f"[ {category_tag} ]"
+        draw.text(
+            (CANVAS_W // 2, 195),
+            tag_text,
+            font=tag_font,
+            fill=ACCENT,
+            anchor="mm",
+            stroke_width=3,
+            stroke_fill=(0, 0, 0)
+        )
+
+        # 4. 상단 주제 텍스트 (Y 좌표 약 280~350px 지점, 70pt 굵은 폰트 + 5px 검은색 외곽선)
         clean_title = title.replace("\n", " ").strip()
-        max_title_width = CANVAS_W - 180
+        max_title_width = CANVAS_W - 160
         lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
-        if len(lines) > 3:
-            lines = lines[:3]
+        if len(lines) > 2:
+            lines = lines[:2]
             lines[-1] = lines[-1].rstrip() + "…"
 
-        # 4. 제목 줄 수에 맞춰 헤더 높이를 동적으로 계산 (고정 카드 박스 대신 콘텐츠 기반 여백)
-        top_pad, tag_h, gap, line_h, bottom_pad = 96, 46, 34, 70, 80
-        header_h = top_pad + tag_h + gap + (line_h * len(lines)) + bottom_pad
-        header_h = max(380, min(header_h, 620))
-
-        # 5. 카테고리 태그 (박스/테두리 없이 텍스트만 배치)
-        tag_text = f"[ {category_tag} ]"
-        draw.text((CANVAS_W // 2, top_pad + tag_h // 2), tag_text, font=tag_font, fill=ACCENT, anchor="mm")
-
-        # 6. 제목 라인 (중앙 정렬, 굵은 흰색)
-        title_start_y = top_pad + tag_h + gap + line_h // 2
+        line_h = 84
+        title_start_y = 290 if len(lines) == 1 else 275
         for idx, line in enumerate(lines):
             y_pos = title_start_y + idx * line_h
-            draw.text((CANVAS_W // 2, y_pos), line, font=title_font, fill=(255, 255, 255), anchor="mm")
+            draw.text(
+                (CANVAS_W // 2, y_pos),
+                line,
+                font=title_font,
+                fill=(255, 255, 255),
+                anchor="mm",
+                stroke_width=5,
+                stroke_fill=(0, 0, 0)
+            )
 
-        # 7. 중앙 16:9 비주얼 배치 + 골드 액센트 라인
-        img_y0 = header_h
-        img_y1 = header_h + IMG_H
+        # 5. 비주얼 이미지 정가운데 배치 ((W-w)/2, (H-h)/2) -> Y: 656~1264px
+        img_y0 = (CANVAS_H - IMG_H) // 2  # 656px (정가운데)
+        img_y1 = img_y0 + IMG_H           # 1264px
         bg.paste(img_16_9, (0, img_y0))
         draw.line([(0, img_y0), (CANVAS_W, img_y0)], fill=ACCENT, width=3)
         draw.line([(0, img_y1), (CANVAS_W, img_y1)], fill=ACCENT, width=3)
 
         # Save Final Composite Frame
         bg.save(image_path, "JPEG", quality=95)
-        print(f"  [FRAME] 상단 고정 주제 + 중앙 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
+        print(f"  [FRAME] 상단 주제 + 정가운데 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
     except Exception as e:
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 
