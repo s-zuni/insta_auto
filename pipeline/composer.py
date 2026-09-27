@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
+from PIL import ImageFont
 
 if sys.platform == "win32":
     try:
@@ -28,6 +29,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.ffmpeg_check import get_ffmpeg_path
+from pipeline.text_utils import build_caption_chunks
+
+SUBTITLE_FONT_SIZE = 62
+# PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
+SUBTITLE_MAX_WIDTH = 880
 
 
 def format_ass_timestamp(seconds: float) -> str:
@@ -74,7 +80,7 @@ def generate_subtitles(
     if output_srt_path:
         output_srt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ass_header = """[Script Info]
+    ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -82,11 +88,21 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,NanumGothic,62,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,180,1
+Style: ReelsSub,NanumGothic,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    # 자막 줄바꿈을 ASS 렌더링과 동일한 폰트/크기로 실측하기 위한 측정용 폰트
+    font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+    try:
+        measure_font = (
+            ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE)
+            if font_path.is_file() else ImageFont.load_default()
+        )
+    except Exception:
+        measure_font = ImageFont.load_default()
+
     ass_dialogues = []
     srt_entries = []
     srt_counter = 1
@@ -94,21 +110,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for sc in scene_results:
         start_t = float(_get_field(sc, "start_time", 0.0))
         end_t = float(_get_field(sc, "end_time", 0.0))
-        duration = float(_get_field(sc, "duration", 0.0))
         narration = str(_get_field(sc, "narration", "")).strip()
 
-        words = narration.split()
-        if len(words) > 7 and duration > 3.0:
-            mid = len(words) // 2
-            part1 = " ".join(words[:mid])
-            part2 = " ".join(words[mid:])
-            mid_t = start_t + (duration * 0.5)
-            chunks = [
-                (start_t, mid_t, part1),
-                (mid_t, end_t, part2)
-            ]
-        else:
-            chunks = [(start_t, end_t, narration)]
+        chunks = build_caption_chunks(narration, start_t, end_t, measure_font, SUBTITLE_MAX_WIDTH)
 
         for c_start, c_end, c_text in chunks:
             ass_start = format_ass_timestamp(c_start)
@@ -117,7 +121,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             srt_start = format_srt_timestamp(c_start)
             srt_end = format_srt_timestamp(c_end)
-            srt_entries.append(f"{srt_counter}\n{srt_start} --> {srt_end}\n{c_text}\n")
+            srt_text = c_text.replace("\\N", "\n")
+            srt_entries.append(f"{srt_counter}\n{srt_start} --> {srt_end}\n{srt_text}\n")
             srt_counter += 1
 
     with open(output_ass_path, "w", encoding="utf-8") as f:
@@ -145,14 +150,17 @@ def render_scene_clip(
     """
     total_frames = max(int(duration * fps), 1)
 
-    # 홀수 씬: 서서히 줌인 (1.0 -> 1.10)
-    # 짝수 씬: 서서히 줌아웃 (1.10 -> 1.0)
+    # 이즈인아웃(사인 곡선) 진행률: 시작/끝은 느리고 중간은 빠르게 움직여 기계적인 느낌을 줄임
+    ease = f"(0.5-0.5*cos(PI*n/{total_frames}))"
+
+    # 홀수 씬: 서서히 줌인 (1.0 -> 1.18)
+    # 짝수 씬: 서서히 줌아웃 (1.18 -> 1.0)
     if scene_id % 2 == 1:
-        crop_w = f"1080*(1-0.10*n/{total_frames})"
-        crop_h = f"1920*(1-0.10*n/{total_frames})"
+        crop_w = f"1080*(1-0.18*{ease})"
+        crop_h = f"1920*(1-0.18*{ease})"
     else:
-        crop_w = f"1080*(0.90+0.10*n/{total_frames})"
-        crop_h = f"1920*(0.90+0.10*n/{total_frames})"
+        crop_w = f"1080*(0.82+0.18*{ease})"
+        crop_h = f"1920*(0.82+0.18*{ease})"
 
     filter_graph = f"crop=w='{crop_w}':h='{crop_h}':x='(in_w-out_w)/2':y='(in_h-out_h)/2',scale=1080:1920"
 
@@ -180,6 +188,91 @@ def render_scene_clip(
         raise RuntimeError(f"FFmpeg 씬 {scene_id} 클립 생성 실패 (code {res.returncode}):\n{err_msg}")
 
 
+TRANSITION_DUR = 0.28  # 씬 전환 크로스페이드 길이(초) - 릴스 특유의 빠른 템포에 맞춘 짧은 디졸브
+
+
+def _concat_copy_merge(clip_paths: List[Path], temp_dir: Path, ffmpeg_bin: str, output_path: Path):
+    """단순 하드컷 병합 (크로스페이드 실패 시 안전 대체 경로)"""
+    concat_list_file = temp_dir / "concat_list.txt"
+    with open(concat_list_file, "w", encoding="utf-8") as f:
+        for cp in clip_paths:
+            escaped_path = str(cp.resolve()).replace("\\", "/")
+            f.write(f"file '{escaped_path}'\n")
+
+    cmd = [
+        ffmpeg_bin, "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", str(concat_list_file),
+        "-c", "copy",
+        str(output_path)
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"FFmpeg 하드컷 병합 실패:\n{res.stderr[-600:]}")
+
+
+def merge_clips_with_crossfade(
+    clip_paths: List[Path],
+    durations: List[float],
+    ffmpeg_bin: str,
+    output_path: Path,
+    temp_dir: Path,
+    transition_dur: float = TRANSITION_DUR
+):
+    """
+    씬 클립들을 하드컷 대신 짧은 디졸브(xfade/acrossfade)로 이어붙여 더 매끄러운 릴스 편집감을 만듭니다.
+    실패 시(짧은 씬, 코덱 불일치 등) 기존 concat 하드컷 방식으로 안전하게 대체됩니다.
+    """
+    n = len(clip_paths)
+    if n <= 1:
+        _concat_copy_merge(clip_paths, temp_dir, ffmpeg_bin, output_path)
+        return
+
+    try:
+        inputs: List[str] = []
+        for cp in clip_paths:
+            inputs += ["-i", str(cp)]
+
+        # 전환 구간이 클립 길이를 넘지 않도록 오프셋 계산용 최소 길이 보정
+        safe_durations = [max(d, transition_dur * 2 + 0.05) for d in durations]
+
+        filter_parts: List[str] = []
+        cum = safe_durations[0]
+        prev_v = "0:v"
+        for i in range(1, n):
+            offset = max(cum - transition_dur, 0.0)
+            out_label = f"vx{i}"
+            filter_parts.append(
+                f"[{prev_v}][{i}:v]xfade=transition=fade:duration={transition_dur:.3f}:offset={offset:.3f}[{out_label}]"
+            )
+            prev_v = out_label
+            cum = cum + safe_durations[i] - transition_dur
+
+        prev_a = "0:a"
+        for i in range(1, n):
+            out_label = f"ax{i}"
+            filter_parts.append(f"[{prev_a}][{i}:a]acrossfade=d={transition_dur:.3f}[{out_label}]")
+            prev_a = out_label
+
+        filter_complex = ";".join(filter_parts)
+
+        cmd = [
+            ffmpeg_bin, "-y", *inputs,
+            "-filter_complex", filter_complex,
+            "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
+            "-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            str(output_path)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr[-800:] if res.stderr else "알 수 없는 xfade 오류")
+        print(f"[COMPOSER] 씬 {n}개를 {transition_dur:.2f}초 디졸브 전환으로 병합 완료")
+    except Exception as e:
+        print(f"  [WARN] 크로스페이드 병합 실패 ({e}). 하드컷 병합으로 대체합니다.")
+        _concat_copy_merge(clip_paths, temp_dir, ffmpeg_bin, output_path)
+
+
 def compose_reels_video(
     image_paths: List[str],
     scene_results: list,
@@ -204,6 +297,7 @@ def compose_reels_video(
 
     print(f"[COMPOSER] 총 {len(scene_results)}개 씬 비디오 클립 렌더링 시작...")
     clip_paths: List[Path] = []
+    durations: List[float] = []
 
     # 1. 씬별 개별 클립 렌더링
     for idx, (img_p, sc) in enumerate(zip(image_paths, scene_results)):
@@ -222,28 +316,12 @@ def compose_reels_video(
             ffmpeg_bin=ffmpeg_bin
         )
         clip_paths.append(clip_p)
+        durations.append(duration)
 
-    # 2. 클립 목록 병합 (Concat demuxer)
-    concat_list_file = temp_dir / "concat_list.txt"
-    with open(concat_list_file, "w", encoding="utf-8") as f:
-        for cp in clip_paths:
-            escaped_path = str(cp.resolve()).replace("\\", "/")
-            f.write(f"file '{escaped_path}'\n")
-
+    # 2. 클립 목록을 짧은 디졸브 전환으로 병합 (하드컷보다 매끄러운 릴스 편집감)
     merged_temp_video = temp_dir / "merged_no_subs.mp4"
-    print("[COMPOSER] 씬별 클립을 연속 영상으로 병합 중...")
-    concat_cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", str(concat_list_file),
-        "-c", "copy",
-        str(merged_temp_video)
-    ]
-    res_concat = subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if res_concat.returncode != 0:
-        raise RuntimeError(f"FFmpeg 클립 병합 실패:\n{res_concat.stderr[-600:]}")
+    print("[COMPOSER] 씬별 클립을 디졸브 전환으로 병합 중...")
+    merge_clips_with_crossfade(clip_paths, durations, ffmpeg_bin, merged_temp_video, temp_dir)
 
     # 3. 자막 파일 생성 (.ass 및 .srt)
     subtitles_dir = Path("assets/subtitles")
@@ -289,6 +367,7 @@ def compose_reels_video(
                     c.unlink()
             if merged_temp_video.is_file():
                 merged_temp_video.unlink()
+            concat_list_file = temp_dir / "concat_list.txt"
             if concat_list_file.is_file():
                 concat_list_file.unlink()
         except Exception:

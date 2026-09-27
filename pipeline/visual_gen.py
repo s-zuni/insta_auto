@@ -2,18 +2,17 @@
 Visual Generation Module.
 Engine priority: Gemini 2.5 Flash Image ("Nano Banana") -> Pollinations FLUX.1 -> Vertex AI Imagen 3.
 Generates 16:9 landscape visuals and composites them into 9:16 vertical Reels frames
-with a top fixed Title Card, center 16:9 visual, and bottom narration subtitle area.
+with a fixed top title header, a centered 16:9 visual, and a bottom narration subtitle zone.
 """
 import os
 import sys
 import io
 import time
-import textwrap
 import requests
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -46,82 +45,83 @@ def compose_reels_frame(
     category_tag: str = "MBTI x 사주 트렌드"
 ):
     """
-    16:9 AI 생성 이미지를 상단 고정 제목 카드 + 중앙 16:9 비주얼 + 하단 자막 영역으로 구별된
-    인스타 릴스/유튜브 숏츠용 1080x1920 세로 프레임으로 합성합니다.
+    16:9 AI 생성 이미지를 상단 고정 주제 타이틀 + 중앙 16:9 비주얼 + 하단 나레이션 자막 영역으로
+    구성된 1080x1920 세로 릴스 프레임으로 합성합니다. (하단 자막은 composer.py에서 하드번인됨)
     """
     if not image_path.is_file():
         return
 
     try:
+        from pipeline.text_utils import wrap_by_pixel_width
+
+        CANVAS_W, CANVAS_H = 1080, 1920
+        IMG_H = 608  # 1080 * 9 / 16 (반올림)
+        ACCENT = (255, 187, 64)
+        BG_TOP = (17, 18, 28)
+        BG_BOTTOM = (8, 8, 13)
+
         raw_img = Image.open(image_path).convert("RGB")
-        img_16_9 = raw_img.resize((1080, 608), Image.Resampling.LANCZOS)
+        img_16_9 = raw_img.resize((CANVAS_W, IMG_H), Image.Resampling.LANCZOS)
 
-        # 1. 1080x1920 세로 백그라운드 (블러 비주얼 + 다크 오버레이)
-        bg = raw_img.resize((1080, 1920), Image.Resampling.LANCZOS)
-        bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
-
-        # 다크 틴트 합성
-        dark_overlay = Image.new("RGB", (1080, 1920), (12, 14, 24))
-        bg = Image.blend(bg, dark_overlay, alpha=0.75)
-
-        # 2. 중앙 16:9 이미지 배치 (Y: 656 ~ 1264)
-        bg.paste(img_16_9, (0, 656))
-
+        # 1. 세로 그라디언트 배경 (블러 처리된 사진 대신 깔끔한 다크 톤 배경 사용)
+        bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_TOP)
         draw = ImageDraw.Draw(bg)
+        for y in range(CANVAS_H):
+            ratio = y / CANVAS_H
+            r = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * ratio)
+            g = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * ratio)
+            b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * ratio)
+            draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
 
-        # 중앙 16:9 이미지 테두리 골드 라인 Accent
-        draw.line([(0, 655), (1080, 655)], fill=(243, 156, 18), width=3)
-        draw.line([(0, 1264), (1080, 1264)], fill=(243, 156, 18), width=3)
-
-        # 3. 상단 고정 제목 카드 (Y: 120 ~ 540)
-        card_x1, card_y1, card_x2, card_y2 = 70, 120, 1010, 540
-        draw.rounded_rectangle(
-            [(card_x1, card_y1), (card_x2, card_y2)],
-            radius=24,
-            fill=(20, 23, 38),
-            outline=(60, 66, 95),
-            width=2
-        )
-
-        # Font setup
+        # 2. 폰트 준비
         font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
         font_file = str(font_path) if font_path.is_file() else None
-
         try:
-            tag_font = ImageFont.truetype(font_file, 32) if font_file else ImageFont.load_default()
-            title_font = ImageFont.truetype(font_file, 48) if font_file else ImageFont.load_default()
+            tag_font = ImageFont.truetype(font_file, 30) if font_file else ImageFont.load_default()
+            title_font = ImageFont.truetype(font_file, 56) if font_file else ImageFont.load_default()
         except Exception:
             tag_font = ImageFont.load_default()
             title_font = ImageFont.load_default()
 
-        # Render Tag
-        tag_text = f"[ {category_tag} ]"
-        draw.text((540, card_y1 + 45), tag_text, font=tag_font, fill=(243, 156, 18), anchor="mm")
-
-        # Wrap Title Text
+        # 3. 제목을 실제 렌더 폭(픽셀) 기준으로 줄바꿈 (최대 3줄, 카드 박스 없이 배경에 직접 배치)
         clean_title = title.replace("\n", " ").strip()
-        lines = textwrap.wrap(clean_title, width=13)
-        if not lines:
-            lines = [clean_title]
-        elif len(lines) > 3:
+        max_title_width = CANVAS_W - 180
+        lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
+        if len(lines) > 3:
             lines = lines[:3]
+            lines[-1] = lines[-1].rstrip() + "…"
 
-        # Draw Title Lines
-        line_height = 62
-        start_y = card_y1 + 140 if len(lines) == 1 else (card_y1 + 120 if len(lines) == 2 else card_y1 + 100)
+        # 4. 제목 줄 수에 맞춰 헤더 높이를 동적으로 계산 (고정 카드 박스 대신 콘텐츠 기반 여백)
+        top_pad, tag_h, gap, line_h, bottom_pad = 96, 46, 34, 70, 80
+        header_h = top_pad + tag_h + gap + (line_h * len(lines)) + bottom_pad
+        header_h = max(380, min(header_h, 620))
+
+        # 5. 카테고리 태그 (박스/테두리 없이 텍스트만 배치)
+        tag_text = f"[ {category_tag} ]"
+        draw.text((CANVAS_W // 2, top_pad + tag_h // 2), tag_text, font=tag_font, fill=ACCENT, anchor="mm")
+
+        # 6. 제목 라인 (중앙 정렬, 굵은 흰색)
+        title_start_y = top_pad + tag_h + gap + line_h // 2
         for idx, line in enumerate(lines):
-            y_pos = start_y + (idx * line_height)
-            draw.text((540, y_pos), line, font=title_font, fill=(255, 255, 255), anchor="mm")
+            y_pos = title_start_y + idx * line_h
+            draw.text((CANVAS_W // 2, y_pos), line, font=title_font, fill=(255, 255, 255), anchor="mm")
+
+        # 7. 중앙 16:9 비주얼 배치 + 골드 액센트 라인
+        img_y0 = header_h
+        img_y1 = header_h + IMG_H
+        bg.paste(img_16_9, (0, img_y0))
+        draw.line([(0, img_y0), (CANVAS_W, img_y0)], fill=ACCENT, width=3)
+        draw.line([(0, img_y1), (CANVAS_W, img_y1)], fill=ACCENT, width=3)
 
         # Save Final Composite Frame
         bg.save(image_path, "JPEG", quality=95)
-        print(f"  [FRAME] 16:9 메인 비주얼 + 상단 제목 릴스 프레임 합성 완료 -> {image_path.name}")
+        print(f"  [FRAME] 상단 고정 주제 + 중앙 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
     except Exception as e:
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 
 
 def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int = 2) -> bool:
-    """Gemini 2.5 Flash Image로 16:9 가로형 초고화질 이미지를 생성합니다."""
+    """Gemini 2.5 Flash Image ("나노바나나") 모델로 16:9 가로형 초고화질 이미지를 생성합니다."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key or api_key.startswith("your_"):
         return False
@@ -178,7 +178,11 @@ def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int
 
 
 def generate_with_pollinations_flux(prompt: str, output_path: Path, retries: int = 3) -> bool:
-    """Pollinations FLUX.1 엔진을 사용하여 16:9 가로형(1080x608) 이미지를 생성합니다."""
+    """
+    Pollinations FLUX.1 엔진을 사용하여 고화질 16:9 가로형(1080x608) 이미지를 생성합니다.
+    API 키 없이 안정적으로 고품질 비주얼을 제공합니다. 일시적 네트워크/지연 오류에 대비해
+    지수 백오프로 재시도합니다.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clean_prompt = prompt.replace("\n", " ").strip()
     enhanced_prompt = f"{clean_prompt}, cinematic aesthetic, mystical mood, 8k resolution, landscape 16:9 ratio, hyperrealistic"
@@ -232,7 +236,7 @@ def generate_with_vertex_imagen(
 
 
 def create_aesthetic_placeholder(scene_id: int, narration: str, output_path: Path):
-    """16:9 그래디언트 백드롭 생성"""
+    """최후의 수단으로 사용하는 16:9 그래디언트 백드롭"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     color_schemes = [
         ((25, 20, 60), (90, 45, 140)),
@@ -287,10 +291,15 @@ def generate_scene_images(
         generated = False
 
         if not force_mock:
+            # 1. 나노바나나(Gemini 2.5 Flash Image) 최우선 시도 (최고화질/프롬프트 반영도)
             if can_use_nanobanana:
                 generated = generate_with_gemini_nanobanana(prompt, img_path)
+
+            # 2. FLUX.1 시도 (나노바나나 실패 또는 키 미설정 시 대체)
             if not generated:
                 generated = generate_with_pollinations_flux(prompt, img_path)
+
+            # 3. Vertex AI Imagen 3 시도 (설정된 경우)
             if not generated and can_use_vertex:
                 generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
 
@@ -299,6 +308,15 @@ def generate_scene_images(
             create_aesthetic_placeholder(scene_id, narration, img_path)
             result.placeholder_scene_ids.append(scene_id)
 
+        # 16:9 해상도 보정
+        try:
+            with Image.open(img_path) as im:
+                if im.size != (1080, 608):
+                    im_resized = im.resize((1080, 608), Image.Resampling.LANCZOS)
+                    im_resized.save(img_path, "JPEG", quality=95)
+        except Exception:
+            pass
+
         # 16:9 이미지를 상단 고정 제목 + 중앙 16:9 프레임(1080x1920)으로 합성
         compose_reels_frame(img_path, title=title)
 
@@ -306,7 +324,7 @@ def generate_scene_images(
         print(f"  ✅ 씬 {scene_id} 릴스 프레임 준비 완료 -> {img_path.name}")
 
     if result.placeholder_scene_ids:
-        print(f"[WARN] {result.placeholder_count}/{len(scenes)}개 씬이 백드롭 플레이스홀더로 대체되었습니다.")
+        print(f"[WARN] {result.placeholder_count}/{len(scenes)}개 씬이 백드롭 플레이스홀더로 대체되었습니다 (씬: {result.placeholder_scene_ids}).")
     else:
         print(f"[SUCCESS] 모든 씬({len(result.image_paths)}장) 16:9 프레임 비주얼 합성 완료!")
     return result

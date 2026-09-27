@@ -37,20 +37,39 @@ FIVE_ELEMENTS = {
 REELS_PERSONA = """[릴스 대본 작가 페르소나]
 당신은 대한민국 MZ세대 여성(20~30대)에게 최적화된 숏폼 릴스 대본 전문 작가입니다.
 초반 3초 후킹, 팩트 중심 날카로운 어조, 사주 명리학 + MBTI 심리 역동 융합,
-MZ 언어, 행동 유도(저장/팔로우/댓글) CTA로 마무리. 전체 분량 30~50초(씬 4~6개)."""
+MZ 언어, 행동 유도(저장/팔로우/댓글) CTA로 마무리. 전체 분량 30~50초(씬 4~6개).
+
+[narration 작성 규칙 - 필수]
+- narration 필드에는 한자(漢字)를 절대 포함하지 마세요. 오직 순수 한글(및 필요시 숫자)만 사용합니다.
+  (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)"""
+
+
+DOMAIN_LABELS = {
+    "SAJU": "사주", "SHINJEOM": "신점", "JAMIDOSU": "자미두수", "TAROT": "타로",
+}
 
 
 def build_series_prompt(series: str, context: dict) -> str:
     if series == "MBTI":
         mbti = context.get("mbti", "INFP")
         nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("","",""))
-        return f"{REELS_PERSONA}\n\n[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n후킹으로 시작 → 사주 오행/십신 진단 → MBTI 심리 교차 분석 → 솔루션 → CTA\n해시태그: #{mbti} #사주 #운세 #MBTI궁합 #오늘의운세 #병오년 #릴스"
+        base = f"{REELS_PERSONA}\n\n[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n후킹으로 시작 → 사주 오행/십신 진단 → MBTI 심리 교차 분석 → 솔루션 → CTA\n해시태그: #{mbti} #사주 #운세 #MBTI궁합 #오늘의운세 #병오년 #릴스"
     elif series == "DAILY":
         el = context.get("element", "목(木)")
+        el_display = el.split("(")[0]  # 한자 표기는 모델 프롬프트에서 제외해 narration에 새어들어가는 것을 방지
         info = FIVE_ELEMENTS.get(el, {})
-        return f"{REELS_PERSONA}\n\n[오늘의 오행 운세 시리즈: {el}]\n색상: {info.get('color','')} | 기운: {info.get('booster','')}\n후킹 → 오행 본질 설명 → 실생활 팁 → CTA\n해시태그: #{el.split('(')[0]} #오늘의운세 #사주 #병오년 #릴스"
+        base = f"{REELS_PERSONA}\n\n[오늘의 오행 운세 시리즈: {el_display}]\n색상: {info.get('color','')} | 기운: {info.get('booster','')}\n후킹 → 오행 본질 설명 → 실생활 팁 → CTA\n해시태그: #{el_display} #오늘의운세 #사주 #병오년 #릴스"
+    elif series in DOMAIN_LABELS:
+        label = DOMAIN_LABELS[series]
+        topic = context.get("topic", f"오늘의 {label} 운세")
+        base = f"{REELS_PERSONA}\n\n[{label} 시리즈]\n주제: {topic}\n후킹 → {label} 핵심 포인트 해석 → 현실 조언 → CTA\n해시태그: #{label} #운세 #오늘의운세 #병오년 #릴스"
     else:
-        return f"{REELS_PERSONA}\n\n주제: {context.get('topic','운세 릴스')}"
+        base = f"{REELS_PERSONA}\n\n주제: {context.get('topic','운세 릴스')}"
+
+    trend_hint = str(context.get("trend_hint", "")).strip()
+    if trend_hint:
+        base += f"\n\n[참고할 실시간 트렌드 헤드라인]\n\"{trend_hint}\"\n(이 트렌드를 자연스러운 후킹이나 사례로 녹여내되, 억지로 끼워 맞추지는 마세요.)"
+    return base
 
 
 def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model_name: Optional[str] = None) -> ReelsScript:

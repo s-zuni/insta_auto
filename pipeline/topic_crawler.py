@@ -1,13 +1,14 @@
 """
-Real-time Internet Topic Scraper & Proposal Generator.
-Crawls Google News KR, Google Trends KR, and popular Korean portals to generate fresh, viral MBTI x Saju topics.
+운세 콘텐츠 전용 실시간 토픽 크롤러.
+막연한 범용 핫이슈(정치/연예/스포츠 등)가 아니라, 사주/MBTI/신점/자미두수/타로 등
+"운세" 카테고리에 직접 속한 실시간 뉴스 헤드라인만 수집하여 릴스 주제를 기획합니다.
 """
 import os
 import sys
-import xml.etree.ElementTree as ET
-import requests
 import random
-from typing import List, Dict, Any
+import xml.etree.ElementTree as ET
+from typing import Any, Dict, List
+import requests
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -16,6 +17,8 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
+load_dotenv()
 
 from pathlib import Path
 
@@ -27,11 +30,36 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+# 크롤링 대상을 "운세" 카테고리로 한정하는 검색 키워드 -> 파이프라인 series 매핑
+# ("사주"는 드라마 등에서 '사주하다(교사하다)'는 동음이의 오탐이 잦고, "타로"는 인명(하카세 타로 등)과
+#  겹치는 경우가 많아 "운세/카드"를 덧붙여 오탐을 줄임.
+FORTUNE_DOMAINS: Dict[str, str] = {
+    "사주 운세": "SAJU",
+    "MBTI 운세": "MBTI",
+    "신점": "SHINJEOM",
+    "자미두수": "JAMIDOSU",
+    "타로 카드 운세": "TAROT",
+}
 
-def fetch_google_news_topics(limit: int = 8) -> List[str]:
-    """구글 뉴스 한국 RSS에서 최신 헤드라인 수집"""
-    url = "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"
-    topics = []
+MBTI_TYPES = [
+    "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+    "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP",
+]
+
+# 실시간 크롤링이 완전히 실패할 때(네트워크 차단 등) 사용할 도메인별 백업 시드
+FALLBACK_TOPICS: Dict[str, List[str]] = {
+    "SAJU": ["2026 병오년 신년운세 화제", "사주로 본 재물운 급상승 시기", "요즘 뜨는 사주 신조어 총정리"],
+    "MBTI": ["MBTI별 스트레스 해소법 화제", "요즘 유행하는 MBTI 밈 총정리", "MBTI 궁합 논쟁 재점화"],
+    "SHINJEOM": ["신점으로 본 인생 전환점 화두", "요즘 신점 후기 화제", "신점과 사주 차이 궁금증 확산"],
+    "JAMIDOSU": ["자미두수 명반으로 본 대운 화제", "자미두수 초심자 관심 급증", "자미두수 궁위 풀이 화제"],
+    "TAROT": ["오늘의 타로 카드 화제", "타로로 본 연애운 인기", "타로 카드 상징 해석 화제"],
+}
+
+
+def fetch_domain_topics(query: str, limit: int = 5) -> List[str]:
+    """구글 뉴스 한국 RSS에서 특정 검색어(query)로 한정된 헤드라인만 수집합니다."""
+    url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
+    topics: List[str] = []
     try:
         res = requests.get(url, headers=HEADERS, timeout=8)
         if res.status_code == 200:
@@ -40,98 +68,79 @@ def fetch_google_news_topics(limit: int = 8) -> List[str]:
                 title_elem = item.find("title")
                 if title_elem is not None and title_elem.text:
                     clean_title = title_elem.text.rsplit(" - ", 1)[0].strip()
-                    if clean_title and len(clean_title) > 5:
+                    if clean_title and len(clean_title) > 4:
                         topics.append(clean_title)
     except Exception as e:
-        print(f"[CRAWLER][WARN] Google News 수집 실패: {e}")
+        print(f"[CRAWLER][WARN] '{query}' 검색 수집 실패: {e}")
     return topics
 
 
-def fetch_google_trends_topics(limit: int = 8) -> List[str]:
-    """구글 트렌드 한국 RSS에서 실시간 트렌드 키워드 수집"""
-    url = "https://trends.google.com/trending/rss?geo=KR"
-    topics = []
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=8)
-        if res.status_code == 200:
-            root = ET.fromstring(res.content)
-            for item in root.findall(".//item")[:limit]:
-                title_elem = item.find("title")
-                if title_elem is not None and title_elem.text:
-                    kw = title_elem.text.strip()
-                    if kw:
-                        topics.append(kw)
-    except Exception as e:
-        print(f"[CRAWLER][WARN] Google Trends 수집 실패: {e}")
-    return topics
+def get_crawled_fortune_topics() -> Dict[str, List[str]]:
+    """
+    운세 5개 도메인(사주/MBTI/신점/자미두수/타로) 각각에 대해 실시간 뉴스 검색 결과를 수집합니다.
+    반환값 키는 파이프라인 series 이름(SAJU/MBTI/SHINJEOM/JAMIDOSU/TAROT).
+    """
+    result: Dict[str, List[str]] = {}
+    for keyword, series in FORTUNE_DOMAINS.items():
+        found = fetch_domain_topics(keyword, limit=5)
+        if found:
+            result[series] = found
+    return result
 
 
-def get_crawled_keywords() -> List[str]:
-    """실시간 뉴스 및 트렌드 키워드를 통합 수집"""
-    news = fetch_google_news_topics(limit=6)
-    trends = fetch_google_trends_topics(limit=6)
-
-    combined = news + trends
-    if not combined:
-        # 크롤링 실패 시 다양성을 보장하는 백업 트렌드 키워드
-        combined = [
-            "2026 병오년 재물운 대박 조짐",
-            "직장인 스트레스 극복 심리",
-            "MBTI별 연애 이탈 신호",
-            "인간관계 피로도 줄이는 법",
-            "소울메이트 사주 오행 궁합",
-            "2026년 하반기 터지는 운세"
-        ]
-    random.shuffle(combined)
-    return combined[:10]
+def _pick_two_series(available: List[str]) -> List[str]:
+    """서로 다른 운세 도메인 2개를 선택 (가능하면 실시간 수집분에서, 부족하면 고정 후보로 보강)."""
+    pool = list(dict.fromkeys(available))  # 순서 보존 중복 제거
+    random.shuffle(pool)
+    if len(pool) >= 2:
+        return pool[:2]
+    fallback_pool = [s for s in ("MBTI", "SAJU", "TAROT", "SHINJEOM", "JAMIDOSU") if s not in pool]
+    pool.extend(fallback_pool)
+    return pool[:2]
 
 
 def get_crawled_reels_proposals() -> Dict[str, Any]:
     """
-    실시간 인터넷 트렌드 키워드를 바탕으로 Gemini를 통해
-    2가지(A안: MBTI 트렌드, B안: 사주/운세 트렌드) 맞춤 기획안을 수집/생성합니다.
+    사주/MBTI/신점/자미두수/타로 등 '운세' 도메인에서만 실시간 트렌드 헤드라인을 크롤링하고,
+    서로 다른 2개 도메인을 뽑아 Gemini로 릴스 기획안(A안/B안)을 생성합니다.
+    (범용 핫이슈를 억지로 MBTI/사주 틀에 끼워 맞추던 기존 방식과 달리, 애초에 운세 콘텐츠와
+    직접 관련된 실시간 화제만 대상으로 합니다.)
     """
     from pipeline.script_gen import get_gemini_client
     from google.genai import types
 
-    keywords = get_crawled_keywords()
-    keywords_str = ", ".join([f"'{k}'" for k in keywords])
+    crawled = get_crawled_fortune_topics()
+    for series, seeds in FALLBACK_TOPICS.items():
+        if not crawled.get(series):
+            crawled[series] = seeds
 
-    mbti_types = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
-                  "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
-    elements = ["목(木)", "화(火)", "토(土)", "금(金)", "수(水)"]
+    series_a, series_b = _pick_two_series(list(crawled.keys()))
+    topic_a = random.choice(crawled.get(series_a, FALLBACK_TOPICS[series_a]))
+    topic_b = random.choice(crawled.get(series_b, FALLBACK_TOPICS[series_b]))
 
-    selected_mbti = random.choice(mbti_types)
-    selected_element = random.choice(elements)
+    mbti_a = random.choice(MBTI_TYPES) if series_a == "MBTI" else ""
+    mbti_b = random.choice(MBTI_TYPES) if series_b == "MBTI" else ""
+
+    def _label(series: str) -> str:
+        return {"SAJU": "사주", "MBTI": "MBTI", "SHINJEOM": "신점", "JAMIDOSU": "자미두수", "TAROT": "타로"}.get(series, series)
 
     prompt = f"""
-다음은 인터넷에서 최근 수집된 실시간 핫 트렌드/뉴스 키워드 리스트입니다:
-[{keywords_str}]
+다음은 운세(사주/MBTI/신점/자미두수/타로) 카테고리에서만 수집한 실시간 트렌드 헤드라인입니다:
+- [{_label(series_a)}] 관련: "{topic_a}"
+- [{_label(series_b)}] 관련: "{topic_b}"
 
-이 트렌드 주제들과 시청자의 호기심을 접목하여 인스타그램 릴스/유튜브 숏츠용 기획안 2개(A안, B안)를 기획하세요.
+이 두 트렌드 헤드라인을 각각 반영하여 인스타그램 릴스/유튜브 숏츠용 기획안 2개(A안, B안)를 기획하세요.
+반드시 위에 주어진 카테고리와 헤드라인 내용에 직접 연결되는 구체적 주제여야 하며,
+관련 없는 범용 이슈(정치/스포츠/연예 가십 등)로 새지 않도록 하세요.
 
 [요구사항]
-- A안: {selected_mbti} MBTI와 실시간 트렌드/심리를 결합한 주제 (제목 15자이내, 초반 3초 후킹, 1줄 요약)
-- B안: {selected_element} 오행/사주 운세와 실시간 트렌드/재물/연애를 결합한 주제 (제목 15자이내, 초반 3초 후킹, 1줄 요약)
+- A안: series="{series_a}" ({_label(series_a)}) {"| MBTI 유형: " + mbti_a if mbti_a else ""} — 제목 15자 이내, 초반 3초 후킹 대사, 1줄 요약
+- B안: series="{series_b}" ({_label(series_b)}) {"| MBTI 유형: " + mbti_b if mbti_b else ""} — 제목 15자 이내, 초반 3초 후킹 대사, 1줄 요약
 
 JSON 포맷 예시:
 {{
-  "option_a": {{
-    "series": "MBTI",
-    "mbti": "{selected_mbti}",
-    "element": "",
-    "title": "제목 15자이내",
-    "hook": "초반 3초 후킹 대사",
-    "summary": "1줄 요약"
-  }},
-  "option_b": {{
-    "series": "DAILY",
-    "mbti": "",
-    "element": "{selected_element}",
-    "title": "제목 15자이내",
-    "hook": "초반 3초 후킹 대사",
-    "summary": "1줄 요약"
-  }}
+  "option_a": {{"series": "{series_a}", "mbti": "{mbti_a}", "topic": "구체적 주제", "trend_hint": "{topic_a}", "title": "제목", "hook": "후킹 대사", "summary": "1줄 요약"}},
+  "option_b": {{"series": "{series_b}", "mbti": "{mbti_b}", "topic": "구체적 주제", "trend_hint": "{topic_b}", "title": "제목", "hook": "후킹 대사", "summary": "1줄 요약"}}
 }}
 """
 
@@ -162,34 +171,32 @@ JSON 포맷 예시:
     except Exception as e:
         print(f"[CRAWLER][WARN] Gemini 크롤링 기획안 생성 에러: {e}")
 
-    # Fallback
+    # Fallback: Gemini 호출 실패 시 크롤링된 헤드라인을 그대로 주제로 사용
     return {
         "option_a": {
-            "series": "MBTI",
-            "mbti": selected_mbti,
-            "element": "",
-            "title": f"트렌드로 본 {selected_mbti} 심리",
-            "hook": f"{selected_mbti}라면 이 트렌드 꼭 확인하세요!",
-            "summary": f"최신 이슈로 풀어보는 {selected_mbti}의 솔직한 반응"
+            "series": series_a, "mbti": mbti_a, "topic": topic_a, "trend_hint": topic_a,
+            "title": f"{_label(series_a)}로 본 {topic_a[:10]}"[:15],
+            "hook": f"요즘 화제인 '{topic_a}', {_label(series_a)}로 풀어드립니다!",
+            "summary": f"{_label(series_a)} 관점에서 본 최신 화제 '{topic_a}' 심층 분석",
         },
         "option_b": {
-            "series": "DAILY",
-            "mbti": "",
-            "element": selected_element,
-            "title": f"2026 {selected_element} 기운 트렌드 운세",
-            "hook": f"오늘 {selected_element} 기운이 강한 당신의 대박 운세!",
-            "summary": f"{selected_element} 오행 흐름과 실시간 재물/연애 꿀팁"
-        }
+            "series": series_b, "mbti": mbti_b, "topic": topic_b, "trend_hint": topic_b,
+            "title": f"{_label(series_b)}로 본 {topic_b[:10]}"[:15],
+            "hook": f"요즘 화제인 '{topic_b}', {_label(series_b)}로 풀어드립니다!",
+            "summary": f"{_label(series_b)} 관점에서 본 최신 화제 '{topic_b}' 심층 분석",
+        },
     }
 
 
 if __name__ == "__main__":
-    print("[TEST] 트렌드 키워드 크롤링 테스트:")
-    kw_list = get_crawled_keywords()
-    for idx, kw in enumerate(kw_list, 1):
-        print(f"  {idx}. {kw}")
+    print("[TEST] 운세 도메인별 실시간 크롤링 테스트:")
+    crawled = get_crawled_fortune_topics()
+    for series, topics in crawled.items():
+        print(f"  [{series}]")
+        for t in topics:
+            print(f"    - {t}")
 
-    print("\n[TEST] 트렌드 기반 Gemini 기획안 생성:")
+    print("\n[TEST] 운세 트렌드 기반 Gemini 기획안 생성:")
     proposals = get_crawled_reels_proposals()
     import json
     print(json.dumps(proposals, ensure_ascii=False, indent=2))

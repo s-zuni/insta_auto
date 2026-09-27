@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import check_ffmpeg
 from pipeline.script_gen import generate_script, create_sample_script, ReelsScript
 from pipeline.mbti_saju_content import generate_mbti_saju_script
+from pipeline.text_utils import sanitize_narration
 from pipeline.tts_engine import generate_speech, FullAudioResult
 from pipeline.visual_gen import generate_scene_images
 from pipeline.composer import compose_reels_video
@@ -38,6 +39,7 @@ def run_pipeline(
     series: str = "MBTI",
     mbti: str = "ENFP",
     element: str = "목(木)",
+    trend_hint: str = "",
     mock_script: bool = False,
     mock_images: bool = False,
     upload_gdrive: bool = True,
@@ -68,8 +70,10 @@ def run_pipeline(
                 ctx = {"mbti": mbti}
             elif series in ("DAILY", "ELEMENT"):
                 ctx = {"element": element}
-            elif series in ("LOVE", "CAREER"):
+            elif series in ("LOVE", "CAREER", "SAJU", "SHINJEOM", "JAMIDOSU", "TAROT"):
                 ctx = {"topic": topic or f"{series} 운세"}
+            if trend_hint:
+                ctx["trend_hint"] = trend_hint
             script: ReelsScript = generate_mbti_saju_script(series=series, context=ctx)
         else:
             script: ReelsScript = generate_script(topic)
@@ -77,6 +81,11 @@ def run_pipeline(
     except Exception as e:
         print(f"  ⚠️ 대본 생성 실패 ({e}). 폴백 대본 사용.")
         script = create_sample_script(topic or f"{series} {mbti}")
+
+    # 한자가 섞여 있으면 TTS가 한글+한자를 중복 발음(예: "토(土)"->"토토")하므로
+    # 나레이션에서 한자를 제거합니다. (제목/캡션은 시각 요소이므로 그대로 유지)
+    for sc in script.scenes:
+        sc.narration = sanitize_narration(sc.narration)
 
     # 2. 음성 합성
     print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 중...")
@@ -194,14 +203,17 @@ def main():
         description="MBTI×사주 인스타그램 릴스 & 유튜브 숏츠(9:16) 원클릭 자동 제작 CLI"
     )
     parser.add_argument("--series", type=str, default="MBTI",
-                        choices=["GENERAL", "MBTI", "DAILY", "LOVE", "CAREER", "ELEMENT"],
+                        choices=["GENERAL", "MBTI", "DAILY", "LOVE", "CAREER", "ELEMENT",
+                                 "SAJU", "SHINJEOM", "JAMIDOSU", "TAROT"],
                         help="콘텐츠 시리즈")
     parser.add_argument("--mbti", type=str, default="ENFP",
                         help="MBTI 유형 (MBTI 시리즈용)")
     parser.add_argument("--element", type=str, default="목(木)",
                         help="오행 (DAILY/ELEMENT 시리즈용)")
     parser.add_argument("--topic", type=str, default="",
-                        help="릴스 주제 (LOVE/CAREER/GENERAL용)")
+                        help="릴스 주제 (LOVE/CAREER/SAJU/SHINJEOM/JAMIDOSU/TAROT/GENERAL용)")
+    parser.add_argument("--trend-hint", type=str, default="",
+                        help="대본에 자연스럽게 녹여낼 실시간 트렌드 헤드라인 (크롤러 연동용)")
     parser.add_argument("--mock-script", action="store_true",
                         help="Gemini API 없이 샘플 대본으로 테스트")
     parser.add_argument("--mock-images", action="store_true",
@@ -222,6 +234,7 @@ def main():
         series=args.series,
         mbti=args.mbti,
         element=args.element,
+        trend_hint=args.trend_hint,
         mock_script=args.mock_script,
         mock_images=args.mock_images,
         upload_gdrive=not args.no_gdrive,

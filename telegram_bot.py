@@ -51,7 +51,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from main import run_pipeline
-from pipeline.topic_crawler import get_crawled_reels_proposals
 
 try:
     import zoneinfo
@@ -61,17 +60,7 @@ except Exception:
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 DEFAULT_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-MBTI_TYPES = [
-    "INTJ", "INTP", "ENTJ", "ENTP",
-    "INFJ", "INFP", "ENFJ", "ENFP",
-    "ISTJ", "ISFJ", "ESTJ", "ESFJ",
-    "ISTP", "ISFP", "ESTP", "ESFP",
-]
-FIVE_ELEMENTS = ["목(木)", "화(火)", "토(土)", "금(金)", "수(水)"]
 
 DB_PATH = PROJECT_ROOT / "state.db"
 PIPELINE_LOCK = threading.Semaphore(1)
@@ -92,6 +81,11 @@ def init_db():
                 created_at TEXT
             )
         """)
+        # 크롤러 연동(운세 도메인 topic / trend_hint) 지원을 위한 컬럼 추가 마이그레이션
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(pending_proposals)").fetchall()}
+        for col in ("topic", "trend_hint"):
+            if col not in existing_cols:
+                conn.execute(f"ALTER TABLE pending_proposals ADD COLUMN {col} TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_schedule (
                 schedule_date TEXT PRIMARY KEY,
@@ -108,23 +102,26 @@ def init_db():
 
 init_db()
 
-def save_proposal(key: str, series: str, mbti: str, element: str, title: str):
+def save_proposal(key: str, series: str, mbti: str, element: str, title: str, topic: str = "", trend_hint: str = ""):
     with sqlite3.connect(DB_PATH) as conn:
         now_str = datetime.datetime.now(KST).isoformat()
         conn.execute(
-            "INSERT OR REPLACE INTO pending_proposals VALUES (?, ?, ?, ?, ?, ?)",
-            (key, series, mbti, element, title, now_str)
+            "INSERT OR REPLACE INTO pending_proposals VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key, series, mbti, element, title, now_str, topic, trend_hint)
         )
         conn.commit()
 
 def get_proposal(key: str) -> dict:
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
-            "SELECT series, mbti, element, title FROM pending_proposals WHERE callback_key = ?",
+            "SELECT series, mbti, element, title, topic, trend_hint FROM pending_proposals WHERE callback_key = ?",
             (key,)
         ).fetchone()
         if row:
-            return {"series": row[0], "mbti": row[1], "element": row[2], "title": row[3]}
+            return {
+                "series": row[0], "mbti": row[1], "element": row[2], "title": row[3],
+                "topic": row[4] or "", "trend_hint": row[5] or "",
+            }
     return {}
 
 def mark_daily_sent(date_str: str):
@@ -212,83 +209,73 @@ def get_updates(offset: int) -> tuple[list, int]:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. Gemini 기획안 생성
+# 3. 운세 도메인 크롤링 기반 기획안 생성
 # ─────────────────────────────────────────────────────────────
-def gemini_plan(prompt: str) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.8
-        }
-    }
-    try:
-        r = requests.post(url, json=body, timeout=25)
-        if r.ok:
-            raw = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            parsed = json.loads(raw)
-            if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
-                return parsed[0]
-            if isinstance(parsed, dict):
-                return parsed
-        else:
-            print(f"[GEMINI][WARN] API 응답 에러 (code={r.status_code}): {r.text[:200]}")
-    except Exception as e:
-        print(f"[GEMINI] 기획안 생성 예외: {e}")
-    return {}
+DOMAIN_LABELS = {"SAJU": "사주", "MBTI": "MBTI", "SHINJEOM": "신점", "JAMIDOSU": "자미두수", "TAROT": "타로", "DAILY": "오행 운세"}
 
 
 def generate_and_send_proposals(chat_id: str | int = None):
-    print(f"[BOT] 실시간 인터넷 이슈 크롤링 및 기획안 생성 시작...")
-    tg_send("🌐 <b>실시간 인터넷 이슈/뉴스를 크롤링하여 트렌드 기획안을 생성 중입니다...</b> (약 5~10초)", chat_id=chat_id)
+    from pipeline.topic_crawler import get_crawled_reels_proposals
+
+    print("[BOT] 운세 도메인(사주/MBTI/신점/자미두수/타로) 실시간 크롤링 기반 기획안 생성 시작")
+    tg_send("🔮 <b>사주·MBTI·신점·자미두수·타로 실시간 화제를 크롤링해 기획안을 생성 중입니다...</b> (약 10~15초)", chat_id=chat_id)
 
     proposals = get_crawled_reels_proposals()
     pa = proposals.get("option_a", {})
     pb = proposals.get("option_b", {})
 
-    mbti_a = pa.get("mbti", random.choice(MBTI_TYPES))
-    title_a = pa.get("title", f"{mbti_a} 트렌드 이슈 분석")
-    hook_a = pa.get("hook", f"{mbti_a}라면 이 트렌드 반응 꼭 보세요!")
-    sum_a = pa.get("summary", f"실시간 이슈로 살펴보는 {mbti_a}의 반응")
-
-    el_b = pb.get("element", random.choice(FIVE_ELEMENTS))
-    title_b = pb.get("title", f"{el_b} 기운 운세 트렌드")
-    hook_b = pb.get("hook", f"오늘 {el_b} 기운을 가진 분들의 대박 타이밍!")
-    sum_b = pb.get("summary", f"{el_b} 오행 트렌드와 실천 운세")
+    series_a = pa.get("series", "MBTI")
+    series_b = pb.get("series", "SAJU")
+    mbti_a = pa.get("mbti", "")
+    mbti_b = pb.get("mbti", "")
+    topic_a = pa.get("topic", "")
+    topic_b = pb.get("topic", "")
+    trend_a = pa.get("trend_hint", "")
+    trend_b = pb.get("trend_hint", "")
+    title_a = pa.get("title", f"{DOMAIN_LABELS.get(series_a, series_a)} 릴스")
+    title_b = pb.get("title", f"{DOMAIN_LABELS.get(series_b, series_b)} 릴스")
+    hook_a = pa.get("hook", "")
+    hook_b = pb.get("hook", "")
+    sum_a = pa.get("summary", "")
+    sum_b = pb.get("summary", "")
 
     ts = int(time.time())
-    ka = f"a_{mbti_a}_{ts}"
-    kb = f"b_{el_b}_{ts}"
+    ka = f"a_{series_a}_{ts}"
+    kb = f"b_{series_b}_{ts}"
 
-    save_proposal(ka, "MBTI", mbti_a, "", title_a)
-    save_proposal(kb, "DAILY", "", el_b, title_b)
+    save_proposal(ka, series_a, mbti_a, "", title_a, topic=topic_a, trend_hint=trend_a)
+    save_proposal(kb, series_b, mbti_b, "", title_b, topic=topic_b, trend_hint=trend_b)
+
+    label_a = DOMAIN_LABELS.get(series_a, series_a) + (f" {mbti_a}" if mbti_a else "")
+    label_b = DOMAIN_LABELS.get(series_b, series_b) + (f" {mbti_b}" if mbti_b else "")
 
     msg = (
-        f"🌐 <b>[실시간 인터넷 트렌드 릴스 기획안 2가지]</b>\n\n"
+        f"🔮 <b>[오늘의 릴스 기획안 2가지 - 실시간 운세 트렌드 기반]</b>\n\n"
         f"───────────────────\n"
-        f"📌 <b>[A안] MBTI {html.escape(mbti_a)} x 트렌드</b>\n"
-        f"• <b>제목:</b> {html.escape(title_a)}\n"
+        f"📌 <b>[A안] {html.escape(label_a)}</b>\n"
+        + (f"• <b>실시간 화제:</b> {html.escape(trend_a)}\n" if trend_a else "")
+        + f"• <b>제목:</b> {html.escape(title_a)}\n"
         f"• <b>후킹:</b> <i>{html.escape(hook_a)}</i>\n"
         f"• <b>요약:</b> {html.escape(sum_a)}\n\n"
         f"───────────────────\n"
-        f"📌 <b>[B안] 오행 운세 {html.escape(el_b)} x 트렌드</b>\n"
-        f"• <b>제목:</b> {html.escape(title_b)}\n"
+        f"📌 <b>[B안] {html.escape(label_b)}</b>\n"
+        + (f"• <b>실시간 화제:</b> {html.escape(trend_b)}\n" if trend_b else "")
+        + f"• <b>제목:</b> {html.escape(title_b)}\n"
         f"• <b>후킹:</b> <i>{html.escape(hook_b)}</i>\n"
         f"• <b>요약:</b> {html.escape(sum_b)}\n"
         f"───────────────────\n\n"
-        f"👇 <b>원하는 안을 누르면 16:9 메인 영상 + 상단 주제 + 하단 자막 레이아웃으로 제작 및 자동 게시됩니다!</b>"
+        f"👇 <b>원하는 안을 누르면 대본→TTS→영상→Drive→인스타 릴스까지 원스톱으로 제작 및 게시됩니다!</b>"
     )
 
     markup = {
         "inline_keyboard": [
-            [{"text": f"✅ A안 — {mbti_a} 릴스 제작 & 게시", "callback_data": ka}],
-            [{"text": f"✅ B안 — {el_b} 릴스 제작 & 게시", "callback_data": kb}],
-            [{"text": "🔄 새로운 트렌드 기획안 수집", "callback_data": "regenerate"}],
+            [{"text": f"✅ A안 — {label_a} 릴스 제작 & 게시", "callback_data": ka}],
+            [{"text": f"✅ B안 — {label_b} 릴스 제작 & 게시", "callback_data": kb}],
+            [{"text": "🔄 새 기획안 다시 생성", "callback_data": "regenerate"}],
         ]
     }
     tg_send(msg, reply_markup=markup, chat_id=chat_id)
-    print(f"[BOT] 실시간 트렌드 기획안 발송 완료 (A: {title_a}, B: {title_b})")
+    print(f"[BOT] 기획안 발송 완료 (A: [{series_a}] {title_a} / B: [{series_b}] {title_b})")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -301,8 +288,10 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
 
     title = plan.get("title", "릴스 영상")
     series = plan.get("series", "MBTI")
-    mbti = plan.get("mbti", "ENFP")
-    element = plan.get("element", "목(木)")
+    mbti = plan.get("mbti", "") or "ENFP"
+    element = plan.get("element", "") or "목(木)"
+    topic = plan.get("topic", "")
+    trend_hint = plan.get("trend_hint", "")
 
     def _worker():
         try:
@@ -310,7 +299,7 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 f"🎬 <b>[{html.escape(title)}]</b> 제작을 시작합니다!\n\n"
                 f"1. 대본 기획 (Gemini 3.1 Flash-Lite)\n"
                 f"2. 한국어 음성 합성 (TTS)\n"
-                f"3. 9:16 비주얼 에셋 생성 (FLUX.1)\n"
+                f"3. 16:9 비주얼 생성 및 릴스 프레임 합성\n"
                 f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"
                 f"5. Google Drive 업로드\n"
                 f"6. Instagram 릴스 자동 게시\n"
@@ -323,6 +312,8 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 series=series,
                 mbti=mbti,
                 element=element,
+                topic=topic,
+                trend_hint=trend_hint,
                 mock_script=False,
                 mock_images=False,
                 upload_gdrive=True,
