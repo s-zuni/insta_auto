@@ -51,6 +51,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from main import run_pipeline
+from pipeline.topic_crawler import get_crawled_reels_proposals
 
 try:
     import zoneinfo
@@ -239,27 +240,22 @@ def gemini_plan(prompt: str) -> dict:
 
 
 def generate_and_send_proposals(chat_id: str | int = None):
-    mbti_a = random.choice(MBTI_TYPES)
-    el_b = random.choice(FIVE_ELEMENTS)
-    print(f"[BOT] 기획안 생성 시작 -> A: {mbti_a}, B: {el_b}")
-    tg_send("🔮 <b>오늘의 사주/MBTI 릴스 기획안을 생성 중입니다...</b> (약 10초)", chat_id=chat_id)
+    print(f"[BOT] 실시간 인터넷 이슈 크롤링 및 기획안 생성 시작...")
+    tg_send("🌐 <b>실시간 인터넷 이슈/뉴스를 크롤링하여 트렌드 기획안을 생성 중입니다...</b> (약 5~10초)", chat_id=chat_id)
 
-    pa = gemini_plan(
-        f"인스타그램 릴스용 {mbti_a} MBTI x 사주 숏폼 대본 기획안을 단일 JSON 객체 하나로 응답하세요. "
-        f'형식: {{"title":"제목(15자이내)","hook":"초반 3초 후킹 대사","summary":"전체 요약 1줄"}}'
-    )
-    pb = gemini_plan(
-        f"인스타그램 릴스용 {el_b} 오행 운세 숏폼 대본 기획안을 단일 JSON 객체 하나로 응답하세요. "
-        f'형식: {{"title":"제목(15자이내)","hook":"초반 3초 후킹 대사","summary":"전체 요약 1줄"}}'
-    )
+    proposals = get_crawled_reels_proposals()
+    pa = proposals.get("option_a", {})
+    pb = proposals.get("option_b", {})
 
-    title_a = pa.get("title", f"{mbti_a} 사주 완벽 분석")
-    hook_a = pa.get("hook", f"{mbti_a}라면 이 영상 꼭 보세요!")
-    sum_a = pa.get("summary", f"{mbti_a} 심리와 사주 궁합 융합 분석")
+    mbti_a = pa.get("mbti", random.choice(MBTI_TYPES))
+    title_a = pa.get("title", f"{mbti_a} 트렌드 이슈 분석")
+    hook_a = pa.get("hook", f"{mbti_a}라면 이 트렌드 반응 꼭 보세요!")
+    sum_a = pa.get("summary", f"실시간 이슈로 살펴보는 {mbti_a}의 반응")
 
-    title_b = pb.get("title", f"{el_b} 오늘의 오행 운세")
-    hook_b = pb.get("hook", f"오늘 {el_b} 기운이 강한 분들 주목!")
-    sum_b = pb.get("summary", f"{el_b} 오행의 흐름과 실천 팁")
+    el_b = pb.get("element", random.choice(FIVE_ELEMENTS))
+    title_b = pb.get("title", f"{el_b} 기운 운세 트렌드")
+    hook_b = pb.get("hook", f"오늘 {el_b} 기운을 가진 분들의 대박 타이밍!")
+    sum_b = pb.get("summary", f"{el_b} 오행 트렌드와 실천 운세")
 
     ts = int(time.time())
     ka = f"a_{mbti_a}_{ts}"
@@ -269,30 +265,30 @@ def generate_and_send_proposals(chat_id: str | int = None):
     save_proposal(kb, "DAILY", "", el_b, title_b)
 
     msg = (
-        f"🔮 <b>[오늘의 릴스 기획안 2가지]</b>\n\n"
+        f"🌐 <b>[실시간 인터넷 트렌드 릴스 기획안 2가지]</b>\n\n"
         f"───────────────────\n"
-        f"📌 <b>[A안] MBTI {html.escape(mbti_a)}</b>\n"
+        f"📌 <b>[A안] MBTI {html.escape(mbti_a)} x 트렌드</b>\n"
         f"• <b>제목:</b> {html.escape(title_a)}\n"
         f"• <b>후킹:</b> <i>{html.escape(hook_a)}</i>\n"
         f"• <b>요약:</b> {html.escape(sum_a)}\n\n"
         f"───────────────────\n"
-        f"📌 <b>[B안] 오행 운세 {html.escape(el_b)}</b>\n"
+        f"📌 <b>[B안] 오행 운세 {html.escape(el_b)} x 트렌드</b>\n"
         f"• <b>제목:</b> {html.escape(title_b)}\n"
         f"• <b>후킹:</b> <i>{html.escape(hook_b)}</i>\n"
         f"• <b>요약:</b> {html.escape(sum_b)}\n"
         f"───────────────────\n\n"
-        f"👇 <b>원하는 안을 누르면 대본→TTS→영상→Drive→인스타 릴스까지 원스톱으로 제작 및 게시됩니다!</b>"
+        f"👇 <b>원하는 안을 누르면 16:9 메인 영상 + 상단 주제 + 하단 자막 레이아웃으로 제작 및 자동 게시됩니다!</b>"
     )
 
     markup = {
         "inline_keyboard": [
             [{"text": f"✅ A안 — {mbti_a} 릴스 제작 & 게시", "callback_data": ka}],
             [{"text": f"✅ B안 — {el_b} 릴스 제작 & 게시", "callback_data": kb}],
-            [{"text": "🔄 새 기획안 다시 생성", "callback_data": "regenerate"}],
+            [{"text": "🔄 새로운 트렌드 기획안 수집", "callback_data": "regenerate"}],
         ]
     }
     tg_send(msg, reply_markup=markup, chat_id=chat_id)
-    print(f"[BOT] 기획안 발송 완료 (A: {title_a}, B: {title_b})")
+    print(f"[BOT] 실시간 트렌드 기획안 발송 완료 (A: {title_a}, B: {title_b})")
 
 
 # ─────────────────────────────────────────────────────────────

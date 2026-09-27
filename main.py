@@ -85,9 +85,9 @@ def run_pipeline(
     print(f"  ✅ 음성 합성 완료 ({time.time() - t0:.1f}초) | {audio_result.total_duration:.1f}초 분량")
 
     # 3. 비주얼 생성
-    print("\n[3/7] 🎨 9:16 비주얼 에셋 생성 중...")
+    print("\n[3/7] 🎨 16:9 비주얼 생성 및 상단 제목 릴스 프레임 합성 중...")
     t0 = time.time()
-    visual_result = generate_scene_images(script.scenes, force_mock=mock_images)
+    visual_result = generate_scene_images(script.scenes, force_mock=mock_images, title=script.title)
     image_paths = visual_result.image_paths
     print(f"  ✅ 비주얼 준비 완료 ({time.time() - t0:.1f}초)")
 
