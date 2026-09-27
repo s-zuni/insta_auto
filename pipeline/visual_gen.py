@@ -62,7 +62,7 @@ def compose_reels_frame(
         raw_img = Image.open(image_path).convert("RGB")
         img_16_9 = raw_img.resize((CANVAS_W, IMG_H), Image.Resampling.LANCZOS)
 
-        # 1. 1080x1920 블러 처리된 사진 + 어두운 틴트 오버레이 배경 (또는 깔끔한 다크 그라디언트)
+        # 1. 1080x1920 블러 처리된 사진 + 어두운 틴트 오버레이 배경
         bg = raw_img.resize((CANVAS_W, CANVAS_H), Image.Resampling.LANCZOS)
         bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
         dark_overlay = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_DARK)
@@ -70,38 +70,28 @@ def compose_reels_frame(
 
         draw = ImageDraw.Draw(bg)
 
-        # 2. 폰트 준비 (상단 주제 70pt 내외)
+        # 2. 폰트 준비 (상단 주제 폰트 1.5배 확대: 105pt)
         font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
         font_file = str(font_path) if font_path.is_file() else None
         try:
-            tag_font = ImageFont.truetype(font_file, 32) if font_file else ImageFont.load_default()
-            title_font = ImageFont.truetype(font_file, 70) if font_file else ImageFont.load_default()
+            title_font = ImageFont.truetype(font_file, 105) if font_file else ImageFont.load_default()
         except Exception:
-            tag_font = ImageFont.load_default()
             title_font = ImageFont.load_default()
 
-        # 3. 카테고리 태그 (Y: 약 195px 지점)
-        tag_text = f"[ {category_tag} ]"
-        draw.text(
-            (CANVAS_W // 2, 195),
-            tag_text,
-            font=tag_font,
-            fill=ACCENT,
-            anchor="mm",
-            stroke_width=3,
-            stroke_fill=(0, 0, 0)
-        )
-
-        # 4. 상단 주제 텍스트 (Y 좌표 약 280~350px 지점, 70pt 굵은 폰트 + 5px 검은색 외곽선)
+        # 3. 상단 고정 주제 텍스트 (카테고리 태그 제거, 1.5배 대형 105pt 폰트 + 6px 검은색 윤곽선)
+        # 중심 Y 좌표를 320px로 완전 고정하여 줄 수에 관계없이 항상 동일한 위치 유지
         clean_title = title.replace("\n", " ").strip()
-        max_title_width = CANVAS_W - 160
+        max_title_width = CANVAS_W - 120
         lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
         if len(lines) > 2:
             lines = lines[:2]
             lines[-1] = lines[-1].rstrip() + "…"
 
-        line_h = 84
-        title_start_y = 290 if len(lines) == 1 else 275
+        line_h = 120
+        TARGET_CENTER_Y = 320
+        total_text_h = line_h * len(lines)
+        title_start_y = TARGET_CENTER_Y - (total_text_h // 2) + (line_h // 2)
+
         for idx, line in enumerate(lines):
             y_pos = title_start_y + idx * line_h
             draw.text(
@@ -110,11 +100,11 @@ def compose_reels_frame(
                 font=title_font,
                 fill=(255, 255, 255),
                 anchor="mm",
-                stroke_width=5,
+                stroke_width=6,
                 stroke_fill=(0, 0, 0)
             )
 
-        # 5. 비주얼 이미지 정가운데 배치 ((W-w)/2, (H-h)/2) -> Y: 656~1264px
+        # 4. 비주얼 이미지 정가운데 배치 ((W-w)/2, (H-h)/2) -> Y: 656~1264px
         img_y0 = (CANVAS_H - IMG_H) // 2  # 656px (정가운데)
         img_y1 = img_y0 + IMG_H           # 1264px
         bg.paste(img_16_9, (0, img_y0))
@@ -123,7 +113,7 @@ def compose_reels_frame(
 
         # Save Final Composite Frame
         bg.save(image_path, "JPEG", quality=95)
-        print(f"  [FRAME] 상단 주제 + 정가운데 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
+        print(f"  [FRAME] 고정 320px 위치 105pt 대형 주제 + 정가운데 16:9 비주얼 합성 완료 -> {image_path.name}")
     except Exception as e:
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 

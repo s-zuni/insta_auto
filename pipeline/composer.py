@@ -31,7 +31,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import get_ffmpeg_path
 from pipeline.text_utils import build_caption_chunks
 
-SUBTITLE_FONT_SIZE = 52
+SUBTITLE_FONT_SIZE = 62
 # PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
 SUBTITLE_MAX_WIDTH = 880
 
@@ -88,7 +88,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,NanumGothic,{SUBTITLE_FONT_SIZE},&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,5,4,2,80,80,360,1
+Style: ReelsSub,NanumGothic,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
