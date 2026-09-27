@@ -1,6 +1,6 @@
 """
-Instagram Reels Automation Pipeline Orchestrator.
-MBTI x Saju Content -> TTS -> Visuals -> FFmpeg Composition -> Google Drive Upload -> Instagram Reels Publish
+Instagram Reels & YouTube Shorts Automation Pipeline Orchestrator.
+MBTI x Saju Content -> TTS -> Visuals -> FFmpeg Composition -> Google Drive Upload -> Instagram Reels -> YouTube Shorts
 """
 import os
 import sys
@@ -26,10 +26,11 @@ from utils.ffmpeg_check import check_ffmpeg
 from pipeline.script_gen import generate_script, create_sample_script, ReelsScript
 from pipeline.mbti_saju_content import generate_mbti_saju_script
 from pipeline.tts_engine import generate_speech, FullAudioResult
-from pipeline.visual_gen import generate_scene_images, ImageGenResult
+from pipeline.visual_gen import generate_scene_images
 from pipeline.composer import compose_reels_video
 from pipeline.gdrive_uploader import upload_reels_assets_to_drive
 from pipeline.insta_publisher import publish_reel_to_instagram
+from pipeline.youtube_publisher import upload_shorts_to_youtube
 
 
 def run_pipeline(
@@ -41,12 +42,13 @@ def run_pipeline(
     mock_images: bool = False,
     upload_gdrive: bool = True,
     publish_insta: bool = True,
+    publish_youtube: bool = True,
     output_path: str = "assets/output/final_reel.mp4"
 ) -> dict:
-    """인스타그램 릴스 생성 및 배포 파이프라인 전체를 원스톱으로 실행합니다."""
+    """인스타그램 릴스 및 유튜브 숏츠 생성/배포 파이프라인 전체를 원스톱으로 실행합니다."""
     start_total_time = time.time()
     print("\n" + "=" * 65)
-    print("🚀 MBTI × 사주 인스타그램 릴스(9:16) 자동 생성 파이프라인 시작")
+    print("🚀 MBTI × 사주 인스타그램 릴스 & 유튜브 숏츠 자동 생성 파이프라인 시작")
     print(f"📌 시리즈: {series} | {topic or mbti or element}")
     print("=" * 65)
 
@@ -54,7 +56,7 @@ def run_pipeline(
         raise RuntimeError("FFmpeg가 준비되지 않았습니다. 설치를 완료한 후 다시 시도하세요.")
 
     # 1. 대본 기획
-    print("\n[1/6] 🧠 릴스 대본 기획 중 (Gemini)...")
+    print("\n[1/7] 🧠 릴스/숏츠 대본 기획 중 (Gemini)...")
     t0 = time.time()
     try:
         if mock_script:
@@ -77,20 +79,20 @@ def run_pipeline(
         script = create_sample_script(topic or f"{series} {mbti}")
 
     # 2. 음성 합성
-    print("\n[2/6] 🎙️ 한국어 내레이션 음성 합성 중...")
+    print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 중...")
     t0 = time.time()
     audio_result: FullAudioResult = generate_speech(script.scenes)
     print(f"  ✅ 음성 합성 완료 ({time.time() - t0:.1f}초) | {audio_result.total_duration:.1f}초 분량")
 
     # 3. 비주얼 생성
-    print("\n[3/6] 🎨 9:16 비주얼 에셋 생성 중...")
+    print("\n[3/7] 🎨 9:16 비주얼 에셋 생성 중...")
     t0 = time.time()
-    visual_result: ImageGenResult = generate_scene_images(script.scenes, force_mock=mock_images)
+    visual_result = generate_scene_images(script.scenes, force_mock=mock_images)
     image_paths = visual_result.image_paths
     print(f"  ✅ 비주얼 준비 완료 ({time.time() - t0:.1f}초)")
 
     # 4. 영상 합성
-    print("\n[4/6] 🎬 Ken Burns + 자막 하드코딩 영상 합성 중...")
+    print("\n[4/7] 🎬 Ken Burns + 자막 하드코딩 영상 합성 중...")
     t0 = time.time()
     final_video = compose_reels_video(
         image_paths=image_paths,
@@ -107,7 +109,7 @@ def run_pipeline(
     # 5. Google Drive 업로드
     drive_result = {}
     if upload_gdrive:
-        print("\n[5/6] ☁️ Google Drive 업로드 중...")
+        print("\n[5/7] ☁️ Google Drive 업로드 중...")
         t0 = time.time()
         folder_tag = f"{series}_{mbti or element}_{script.title[:15].strip()}"
         drive_result = upload_reels_assets_to_drive(
@@ -121,9 +123,8 @@ def run_pipeline(
     # 6. Instagram 릴스 자동 게시
     insta_result = {}
     if publish_insta:
-        print("\n[6/6] 📸 Instagram 릴스 게시 시도...")
+        print("\n[6/7] 📸 Instagram 릴스 게시 시도...")
         t0 = time.time()
-        # Drive의 직접 다운로드 URL 확보
         video_direct_url = ""
         if isinstance(drive_result, dict) and "video" in drive_result:
             video_direct_url = drive_result["video"].get("direct_url", "")
@@ -142,6 +143,27 @@ def run_pipeline(
             print("  ℹ️ 공개 비디오 다운로드 URL이 없어 Instagram 게시를 건너뜁니다.")
             insta_result = {"skipped": True, "reason": "No public video URL from Drive"}
 
+    # 7. YouTube Shorts 자동 게시
+    youtube_result = {}
+    if publish_youtube:
+        print("\n[7/7] ▶️ YouTube Shorts 업로드 시도...")
+        t0 = time.time()
+        refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
+        if refresh_token:
+            try:
+                youtube_result = upload_shorts_to_youtube(
+                    video_path=final_video,
+                    title=script.title,
+                    description=script.instagram_caption
+                )
+                print(f"  ✅ YouTube Shorts 업로드 완료 ({time.time() - t0:.1f}초)")
+            except Exception as e:
+                print(f"  ⚠️ YouTube Shorts 업로드 실패: {e}")
+                youtube_result = {"error": str(e)}
+        else:
+            print("  ℹ️ YOUTUBE_REFRESH_TOKEN 이 미설정되어 YouTube 게시를 건너뜁니다.")
+            youtube_result = {"skipped": True, "reason": "YOUTUBE_REFRESH_TOKEN not set"}
+
     total = time.time() - start_total_time
     print("\n" + "=" * 65)
     print(f"🎉 파이프라인 전체 완료! (총 {total:.1f}초)")
@@ -150,6 +172,8 @@ def run_pipeline(
         print(f"☁️ Google Drive 링크: {drive_result['folder_link']}")
     if insta_result.get("link"):
         print(f"📸 Instagram 릴스 링크: {insta_result['link']}")
+    if youtube_result.get("link"):
+        print(f"▶️ YouTube Shorts 링크: {youtube_result['link']}")
     print("=" * 65)
 
     return {
@@ -159,6 +183,7 @@ def run_pipeline(
         "caption": script.instagram_caption,
         "gdrive": drive_result,
         "instagram": insta_result,
+        "youtube": youtube_result,
         "placeholder_scene_count": visual_result.placeholder_count,
         "total_scene_count": len(image_paths),
     }
@@ -166,7 +191,7 @@ def run_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="MBTI×사주 인스타그램 릴스(9:16) 원클릭 자동 제작 CLI"
+        description="MBTI×사주 인스타그램 릴스 & 유튜브 숏츠(9:16) 원클릭 자동 제작 CLI"
     )
     parser.add_argument("--series", type=str, default="MBTI",
                         choices=["GENERAL", "MBTI", "DAILY", "LOVE", "CAREER", "ELEMENT"],
@@ -185,6 +210,8 @@ def main():
                         help="Google Drive 업로드 건너뛰기")
     parser.add_argument("--no-insta", action="store_true",
                         help="Instagram 게시 건너뛰기")
+    parser.add_argument("--no-youtube", action="store_true",
+                        help="YouTube Shorts 업로드 건너뛰기")
     parser.add_argument("--output", type=str, default="assets/output/final_reel.mp4",
                         help="출력 영상 파일 경로")
 
@@ -199,6 +226,7 @@ def main():
         mock_images=args.mock_images,
         upload_gdrive=not args.no_gdrive,
         publish_insta=not args.no_insta,
+        publish_youtube=not args.no_youtube,
         output_path=args.output
     )
 

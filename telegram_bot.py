@@ -317,7 +317,8 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 f"3. 9:16 비주얼 에셋 생성 (FLUX.1)\n"
                 f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"
                 f"5. Google Drive 업로드\n"
-                f"6. Instagram 릴스 자동 게시\n\n"
+                f"6. Instagram 릴스 자동 게시\n"
+                f"7. YouTube Shorts 자동 게시\n\n"
                 f"⏳ 약 1~3분 소요됩니다.",
                 chat_id=chat_id
             )
@@ -329,12 +330,14 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 mock_script=False,
                 mock_images=False,
                 upload_gdrive=True,
-                publish_insta=True
+                publish_insta=True,
+                publish_youtube=True
             )
 
             v_path = res.get("video_path", "")
             gdrive = res.get("gdrive", {})
             insta = res.get("instagram", {})
+            youtube = res.get("youtube", {})
             placeholder_count = res.get("placeholder_scene_count", 0)
             total_scenes = res.get("total_scene_count", 0)
 
@@ -360,6 +363,11 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:150])}")
             elif insta.get("skipped"):
                 lines.append("ℹ️ <b>Instagram:</b> 영상 직링크 미제공으로 건너뜀")
+
+            if youtube.get("link"):
+                lines.append(f"▶️ <b>YouTube Shorts:</b> <a href=\"{youtube['link']}\">숏츠 바로가기</a>")
+            elif youtube.get("error"):
+                lines.append(f"⚠️ <b>YouTube Shorts 참고:</b> {html.escape(str(youtube['error'])[:150])}")
 
             tg_send("\n".join(lines), chat_id=chat_id)
 
