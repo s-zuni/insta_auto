@@ -6,6 +6,7 @@ Usage:
 """
 import os
 import sys
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -55,7 +56,10 @@ def main():
         }
     }
 
-    scopes = ["https://www.googleapis.com/auth/youtube.upload"]
+    scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly"
+    ]
     flow = InstalledAppFlow.from_client_config(client_config, scopes=scopes)
 
     print("\n🚀 웹 브라우저에서 유튜브 계정 인증 창이 열립니다...")
@@ -63,7 +67,24 @@ def main():
 
     creds = flow.run_local_server(port=8080, prompt="consent", access_type="offline")
 
-    print("\n✅ 인증 성공! 발급받은 Refresh Token:")
+    # 채널 정보 조회
+    channel_name = "알 수 없음"
+    channel_id = ""
+    try:
+        from googleapiclient.discovery import build
+        service = build("youtube", "v3", credentials=creds)
+        ch_res = service.channels().list(part="snippet", mine=True).execute()
+        if ch_res.get("items"):
+            item = ch_res["items"][0]
+            channel_name = item["snippet"].get("title", "")
+            channel_id = item.get("id", "")
+    except Exception as e:
+        print(f"  ℹ️ 채널명 확인 참고: {e}")
+
+    print("\n=======================================================")
+    print(f"🎉 인증 성공! 등록된 유튜브 채널명: [{channel_name}] (ID: {channel_id})")
+    print("=======================================================")
+    print("발급된 Refresh Token:")
     print("-" * 65)
     print(creds.refresh_token)
     print("-" * 65)

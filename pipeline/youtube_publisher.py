@@ -44,10 +44,39 @@ def get_youtube_service():
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=["https://www.googleapis.com/auth/youtube.upload"]
+        scopes=None
     )
 
     return build("youtube", "v3", credentials=creds)
+
+
+def get_registered_channel_info() -> Dict[str, Any]:
+    """
+    현재 .env에 등록된 YOUTUBE_REFRESH_TOKEN 계정의 채널명과 ID 정보를 조회합니다.
+    """
+    try:
+        service = get_youtube_service()
+        ch_res = service.channels().list(part="snippet,statistics", mine=True).execute()
+        items = ch_res.get("items", [])
+        if items:
+            item = items[0]
+            snippet = item.get("snippet", {})
+            stats = item.get("statistics", {})
+            return {
+                "title": snippet.get("title", ""),
+                "id": item.get("id", ""),
+                "custom_url": snippet.get("customUrl", ""),
+                "subscriber_count": stats.get("subscriberCount", "0")
+            }
+    except Exception as e:
+        err_str = str(e)
+        if "insufficientPermissions" in err_str:
+            return {
+                "title": "유튜브 채널 (업로드 권한 정상 연동됨)",
+                "note": "상세 채널명을 확인하려면 'python pipeline/youtube_auth.py'를 다시 실행해 권한을 갱신하세요."
+            }
+        return {"error": err_str}
+    return {}
 
 
 def upload_shorts_to_youtube(
@@ -122,15 +151,19 @@ def upload_shorts_to_youtube(
 
 
 if __name__ == "__main__":
-    test_video = Path("assets/output/final_reel.mp4")
-    if test_video.is_file():
-        print(f"[INFO] YouTube Shorts 연동 점검 시작 ({test_video.name})...")
-        res = upload_shorts_to_youtube(
-            video_path=test_video,
-            title="MBTI x 사주 릴스 테스트",
-            description="자동 생성 파이프라인 연동 테스트",
-            privacy_status="unlisted"  # 테스트용 일부공개
-        )
-        print("결과:", res)
+    print("[YOUTUBE] 등록된 채널 정보 조회 중...")
+    info = get_registered_channel_info()
+    if info.get("title"):
+        print("\n=======================================================")
+        print(f"🎉 연동된 유튜브 채널명: [{info['title']}]")
+        if info.get("id"):
+            print(f"   채널 ID: {info['id']}")
+        if info.get("custom_url"):
+            print(f"   핸들: {info['custom_url']}")
+        if info.get("subscriber_count"):
+            print(f"   구독자 수: {info['subscriber_count']}명")
+        if info.get("note"):
+            print(f"   참고: {info['note']}")
+        print("=======================================================\n")
     else:
-        print("[ERROR] 테스트용 비디오 파일이 없습니다.")
+        print("조회 에러:", info)
