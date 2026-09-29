@@ -83,7 +83,8 @@ def synthesize_with_google_tts(
     scenes: list,
     output_dir: Path,
     voice_name: str = "ko-KR-Neural2-C",
-    speaking_rate: float = 1.05
+    speaking_rate: float = 1.08,
+    pitch: float = 0.0
 ) -> FullAudioResult:
     """
     Google Cloud Text-to-Speech API를 사용하여 씬별 음성을 생성하고 타이밍 정보를 추출합니다.
@@ -99,7 +100,7 @@ def synthesize_with_google_tts(
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3,
         speaking_rate=speaking_rate,
-        pitch=0.0,
+        pitch=pitch,
     )
 
     scene_results: List[SceneAudioResult] = []
@@ -172,13 +173,19 @@ def synthesize_with_google_tts(
     return result
 
 
-async def _synthesize_edge_tts_scene(narration: str, output_path: Path, voice: str = "ko-KR-SunHiNeural") -> List[WordTiming]:
+async def _synthesize_edge_tts_scene(
+    narration: str,
+    output_path: Path,
+    voice: str = "ko-KR-SunHiNeural",
+    rate: str = "+7%",
+    pitch: str = "+1Hz"
+) -> List[WordTiming]:
     """
     Edge-TTS를 사용하여 씬 오디오 및 세부 단어 타이밍을 생성합니다.
     """
     import edge_tts
 
-    communicate = edge_tts.Communicate(narration, voice=voice, rate="+5%")
+    communicate = edge_tts.Communicate(narration, voice=voice, rate=rate, pitch=pitch)
     word_timings: List[WordTiming] = []
 
     with open(output_path, "wb") as file:
@@ -203,7 +210,9 @@ async def _synthesize_edge_tts_scene(narration: str, output_path: Path, voice: s
 def synthesize_with_edge_tts_fallback(
     scenes: list,
     output_dir: Path,
-    voice_name: str = "ko-KR-SunHiNeural"
+    voice_name: str = "ko-KR-SunHiNeural",
+    rate: str = "+7%",
+    pitch: str = "+1Hz"
 ) -> FullAudioResult:
     """
     GCP 인증이 없을 때 무중단으로 동작하는 고음질 한국어 Neural TTS 폴백 엔진.
@@ -222,7 +231,9 @@ def synthesize_with_edge_tts_fallback(
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            raw_timings = loop.run_until_complete(_synthesize_edge_tts_scene(narration, scene_path, voice_name))
+            raw_timings = loop.run_until_complete(
+                _synthesize_edge_tts_scene(narration, scene_path, voice=voice_name, rate=rate, pitch=pitch)
+            )
         finally:
             loop.close()
 
@@ -299,33 +310,98 @@ def _concatenate_audio_files(input_files: List[str], output_file: Path):
     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 
-def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> FullAudioResult:
+VOICE_PROFILES = [
+    {
+        "gender": "female",
+        "description": "생기발랄 통통 튀는 여성 톤",
+        "google_voice": "ko-KR-Neural2-A",
+        "google_pitch": 1.5,
+        "google_rate": 1.08,
+        "edge_voice": "ko-KR-SunHiNeural",
+        "edge_rate": "+8%",
+        "edge_pitch": "+2Hz"
+    },
+    {
+        "gender": "female",
+        "description": "위트 있고 빠른 템포의 여성 톤",
+        "google_voice": "ko-KR-Neural2-B",
+        "google_pitch": 1.0,
+        "google_rate": 1.10,
+        "edge_voice": "ko-KR-SunHiNeural",
+        "edge_rate": "+9%",
+        "edge_pitch": "+1Hz"
+    },
+    {
+        "gender": "male",
+        "description": "유쾌하고 흡입력 있는 남성 톤",
+        "google_voice": "ko-KR-Neural2-C",
+        "google_pitch": 0.5,
+        "google_rate": 1.08,
+        "edge_voice": "ko-KR-InJoonNeural",
+        "edge_rate": "+8%",
+        "edge_pitch": "+1Hz"
+    },
+    {
+        "gender": "male",
+        "description": "트렌디하고 솔직담백한 남성 톤",
+        "google_voice": "ko-KR-Neural2-C",
+        "google_pitch": -0.5,
+        "google_rate": 1.06,
+        "edge_voice": "ko-KR-HyunsuNeural",
+        "edge_rate": "+7%",
+        "edge_pitch": "0Hz"
+    }
+]
+
+
+def generate_speech(
+    scenes: list,
+    output_dir: Optional[str | Path] = None,
+    preferred_gender: Optional[str] = None
+) -> FullAudioResult:
     """
     대본의 씬(scenes) 리스트를 입력받아 음성 및 타이밍 정보를 생성합니다.
-    1. Google Cloud Text-to-Speech 우선 시도
-    2. GCP 인증 미설정 시 고음질 Edge-TTS 엔진으로 자동 전환
+    - 남성뿐만 아니라 여성 보이스 및 재미있고 다양한 톤을 지원합니다.
+    - 1. Google Cloud Text-to-Speech 우선 시도
+    - 2. GCP 인증 미설정 시 고음질 Edge-TTS 엔진으로 자동 전환
     """
+    import random
+
     if output_dir is None:
         output_dir = Path("assets/audio")
     else:
         output_dir = Path(output_dir)
 
-    voice_name = os.getenv("TTS_VOICE_NAME", "ko-KR-Neural2-C")
-    speaking_rate = float(os.getenv("TTS_SPEAKING_RATE", "1.05"))
-    sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    # 성별 필터링 또는 랜덤 선택
+    gender_req = (preferred_gender or os.getenv("TTS_VOICE_GENDER", "")).strip().lower()
+    if gender_req in ("female", "여성"):
+        candidates = [p for p in VOICE_PROFILES if p["gender"] == "female"]
+    elif gender_req in ("male", "남성"):
+        candidates = [p for p in VOICE_PROFILES if p["gender"] == "male"]
+    else:
+        candidates = VOICE_PROFILES
 
-    # Google Cloud TTS 시도 조건 확인
+    chosen_profile = random.choice(candidates)
+    print(f"[TTS] 🎙️ 보이스 톤 선택: {chosen_profile['description']} (성별: {chosen_profile['gender']})")
+
+    sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     try_google = bool(sa_path and os.path.isfile(sa_path))
 
     if try_google:
         try:
-            print(f"[TTS] Google Cloud TTS({voice_name})로 음성 합성을 진행합니다...")
-            return synthesize_with_google_tts(scenes, output_dir, voice_name, speaking_rate)
+            g_voice = os.getenv("TTS_VOICE_NAME") or chosen_profile["google_voice"]
+            g_rate = float(os.getenv("TTS_SPEAKING_RATE", chosen_profile["google_rate"]))
+            g_pitch = chosen_profile["google_pitch"]
+            print(f"[TTS] Google Cloud TTS({g_voice}, pitch={g_pitch})로 음성 합성을 진행합니다...")
+            return synthesize_with_google_tts(scenes, output_dir, g_voice, g_rate, pitch=g_pitch)
         except Exception as e:
             print(f"[WARNING] Google Cloud TTS 실패 ({e}), 폴백 엔진(Edge-TTS)으로 전환합니다.")
 
-    print("[TTS] 고음질 한국어 음성 엔진(Edge-TTS ko-KR-SunHiNeural)으로 음성 합성을 진행합니다...")
-    return synthesize_with_edge_tts_fallback(scenes, output_dir)
+    edge_voice = chosen_profile["edge_voice"]
+    edge_rate = chosen_profile["edge_rate"]
+    edge_pitch = chosen_profile["edge_pitch"]
+    print(f"[TTS] 고음질 한국어 음성 엔진(Edge-TTS {edge_voice}, rate={edge_rate}, pitch={edge_pitch})으로 음성 합성을 진행합니다...")
+    return synthesize_with_edge_tts_fallback(scenes, output_dir, voice_name=edge_voice, rate=edge_rate, pitch=edge_pitch)
 
 
 if __name__ == "__main__":
