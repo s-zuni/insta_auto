@@ -35,7 +35,7 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 
 ## 2. 폰트 / 한자 처리
 
-- 사용 폰트: `assets/fonts/NanumGothic-Bold.ttf` (제목/태그/자막 공통).
+- 사용 폰트: `assets/fonts/Pretendard-Bold.otf` (제목/태그/자막/커버/캐러셀 공통, 파일이 없으면 NanumGothic-Bold로 대체). ASS Fontname은 `Pretendard`.
 - **나레이션(narration)에는 한자를 절대 포함하지 않는다.** TTS 엔진이 같은 발음의 한글+한자를
   중복으로 읽는 버그가 있었음(`"토(土)사주"` → 음성 `"토토 사주"`). 방어는 2중:
   1. 프롬프트 지시: `script_gen.py` SYSTEM_PROMPT, `mbti_saju_content.py` REELS_PERSONA에
@@ -50,7 +50,7 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 - 단어 개수 기반으로 대충 반으로 자르는 방식은 폐기됨. 현재 로직:
   1. `split_into_clauses()` — 문장부호(`. ! ? ,`)와 한국어 어미(`~요/~죠/~다` 뒤) 기준으로
      나레이션을 자연스러운 구(clause) 단위로 분할. 6자 미만 조각은 앞 구절에 병합.
-  2. `wrap_by_pixel_width()` — 각 구절을 ASS 스타일과 동일한 폰트/크기(NanumGothic 62px)로
+  2. `wrap_by_pixel_width()` — 각 구절을 ASS 스타일과 동일한 폰트/크기(Pretendard 62px)로
      실측하여 픽셀 폭(880px, `SUBTITLE_MAX_WIDTH`) 기준 줄바꿈.
   3. 한 자막 블록 최대 2줄(`max_lines`). 줄바꿈은 ASS `\N`.
   4. 각 블록의 재생 구간은 전체 씬 duration을 글자 수 비례로 배분 (`build_caption_chunks`).

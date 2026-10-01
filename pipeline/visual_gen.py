@@ -75,7 +75,9 @@ def compose_reels_frame(
             draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
 
         # 2. 폰트 준비
-        font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+        font_path = PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf"
+        if not font_path.is_file():
+            font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
         font_file = str(font_path) if font_path.is_file() else None
         try:
             tag_font = ImageFont.truetype(font_file, 30) if font_file else ImageFont.load_default()

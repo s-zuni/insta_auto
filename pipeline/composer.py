@@ -32,6 +32,11 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import get_ffmpeg_path
 from pipeline.text_utils import build_caption_chunks, build_karaoke_blocks
 
+# 자막/제목 공통 폰트: Pretendard Bold (없으면 NanumGothic Bold로 대체). ASS Fontname은 폰트 패밀리명과 일치해야 함.
+_PRETENDARD = PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf"
+SUBTITLE_FONT_FILE = _PRETENDARD if _PRETENDARD.is_file() else PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+SUBTITLE_FONT_NAME = "Pretendard" if _PRETENDARD.is_file() else "NanumGothic"
+
 SUBTITLE_FONT_SIZE = 62
 # PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
 SUBTITLE_MAX_WIDTH = 880
@@ -92,13 +97,13 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,NanumGothic,{SUBTITLE_FONT_SIZE},&H0040BBFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
+Style: ReelsSub,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H0040BBFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     # 자막 줄바꿈을 ASS 렌더링과 동일한 폰트/크기로 실측하기 위한 측정용 폰트
-    font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+    font_path = SUBTITLE_FONT_FILE
     try:
         measure_font = (
             ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE)
