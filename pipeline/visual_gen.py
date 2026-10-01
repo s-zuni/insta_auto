@@ -12,7 +12,7 @@ import requests
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -42,14 +42,11 @@ class ImageGenResult:
 def compose_reels_frame(
     image_path: Path,
     title: str,
-    category_tag: str = ""
+    category_tag: str = "MBTI x 사주 트렌드"
 ):
     """
-    사용자 기획안 규격 (1080x1920):
-    - 배경: 순수 블랙 (#000000)
-    - 상단 제목: Pretendard 볼드, 크기 128, 위치 (X:0 가운데 정렬, Y: 265), 외곽선 사용
-    - 중앙 이미지: 16:9 가로 비주얼 (1080x608), 화면 정중앙 (Y: 656~1264)
-    - 하단 자막 영역: composer.py에서 Y: 1423, 크기 96으로 하드번인
+    16:9 AI 생성 이미지를 상단 고정 주제 타이틀 + 중앙 16:9 비주얼 + 하단 나레이션 자막 영역으로
+    구성된 1080x1920 세로 릴스 프레임으로 합성합니다. (하단 자막은 composer.py에서 하드번인됨)
     """
     if not image_path.is_file():
         return
@@ -59,64 +56,66 @@ def compose_reels_frame(
 
         CANVAS_W, CANVAS_H = 1080, 1920
         IMG_H = 608  # 1080 * 9 / 16 (반올림)
+        ACCENT = (255, 187, 64)
+        BG_TOP = (17, 18, 28)
+        BG_BOTTOM = (8, 8, 13)
 
         raw_img = Image.open(image_path).convert("RGB")
         img_16_9 = raw_img.resize((CANVAS_W, IMG_H), Image.Resampling.LANCZOS)
 
-        # 1. 기획안 레이아웃: 상하단 순수 블랙 배경 (#000000)
-        bg = Image.new("RGB", (CANVAS_W, CANVAS_H), (0, 0, 0))
-
-        # 2. 중앙 이미지 배치 (화면 정중앙: Y: 656 ~ 1264)
-        img_y0 = (CANVAS_H - IMG_H) // 2  # 656px
-        bg.paste(img_16_9, (0, img_y0))
-
+        # 1. 세로 그라디언트 배경 (블러 처리된 사진 대신 깔끔한 다크 톤 배경 사용)
+        bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_TOP)
         draw = ImageDraw.Draw(bg)
+        for y in range(CANVAS_H):
+            ratio = y / CANVAS_H
+            r = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * ratio)
+            g = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * ratio)
+            b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * ratio)
+            draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
 
-        # 3. 제목 폰트 준비 (Pretendard 볼드체, 크기 128)
-        font_candidates = [
-            PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf",
-            PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf",
-        ]
-        title_font = None
-        for fc in font_candidates:
-            if fc.is_file():
-                try:
-                    title_font = ImageFont.truetype(str(fc), 128)
-                    break
-                except Exception:
-                    pass
-        if not title_font:
+        # 2. 폰트 준비
+        font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+        font_file = str(font_path) if font_path.is_file() else None
+        try:
+            tag_font = ImageFont.truetype(font_file, 30) if font_file else ImageFont.load_default()
+            title_font = ImageFont.truetype(font_file, 56) if font_file else ImageFont.load_default()
+        except Exception:
+            tag_font = ImageFont.load_default()
             title_font = ImageFont.load_default()
 
-        # 4. 상단 제목 텍스트 배치
-        # 위치: X: 0 (가운데 정렬 -> centerX: 540), Y: 265 고정, 볼드체, 외곽선(검정 7px)
+        # 3. 제목을 실제 렌더 폭(픽셀) 기준으로 줄바꿈 (최대 3줄, 카드 박스 없이 배경에 직접 배치)
         clean_title = title.replace("\n", " ").strip()
-        max_title_width = CANVAS_W - 100  # 좌우 여백 50px
+        max_title_width = CANVAS_W - 180
         lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
-        if len(lines) > 2:
-            lines = lines[:2]
+        if len(lines) > 3:
+            lines = lines[:3]
             lines[-1] = lines[-1].rstrip() + "…"
 
-        line_h = 145
-        TARGET_CENTER_Y = 265
-        total_text_h = line_h * len(lines)
-        title_start_y = TARGET_CENTER_Y - (total_text_h // 2) + (line_h // 2)
+        # 4. 제목 줄 수에 맞춰 헤더 높이를 동적으로 계산 (고정 카드 박스 대신 콘텐츠 기반 여백)
+        top_pad, tag_h, gap, line_h, bottom_pad = 96, 46, 34, 70, 80
+        header_h = top_pad + tag_h + gap + (line_h * len(lines)) + bottom_pad
+        header_h = max(380, min(header_h, 620))
 
+        # 5. 카테고리 태그 (박스/테두리 없이 텍스트만 배치)
+        tag_text = f"[ {category_tag} ]"
+        draw.text((CANVAS_W // 2, top_pad + tag_h // 2), tag_text, font=tag_font, fill=ACCENT, anchor="mm")
+
+        # 6. 제목 라인 (중앙 정렬, 굵은 흰색)
+        title_start_y = top_pad + tag_h + gap + line_h // 2
         for idx, line in enumerate(lines):
             y_pos = title_start_y + idx * line_h
-            draw.text(
-                (CANVAS_W // 2, y_pos),
-                line,
-                font=title_font,
-                fill=(255, 255, 255),
-                anchor="mm",
-                stroke_width=7,
-                stroke_fill=(0, 0, 0)
-            )
+            draw.text((CANVAS_W // 2, y_pos), line, font=title_font, fill=(255, 255, 255), anchor="mm")
 
-        # 5. 최종 프레임 저장
+        # 7. 중앙 16:9 비주얼 배치 + 골드 액센트 라인
+        img_y0 = header_h
+        img_y1 = header_h + IMG_H
+        bg.paste(img_16_9, (0, img_y0))
+        draw.line([(0, img_y0), (CANVAS_W, img_y0)], fill=ACCENT, width=3)
+        draw.line([(0, img_y1), (CANVAS_W, img_y1)], fill=ACCENT, width=3)
+
+        # Save Final Composite Frame
         bg.save(image_path, "JPEG", quality=95)
-        print(f"  [FRAME] 기획안 규격 (Pretendard 128pt Y:265 + 중앙 16:9) 합성 완료 -> {image_path.name}")
+        print(f"  [FRAME] 상단 고정 주제 + 중앙 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
     except Exception as e:
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 

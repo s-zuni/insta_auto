@@ -50,52 +50,25 @@ DOMAIN_LABELS = {
 
 
 def build_series_prompt(series: str, context: dict) -> str:
-    topic = context.get("topic", "").strip()
     if series == "MBTI":
         mbti = context.get("mbti", "INFP")
         nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("","",""))
-        default_theme = f"{mbti}의 숨겨진 본성 및 순위 분석"
-        base = (
-            f"{REELS_PERSONA}\n\n[MBTI 순위 및 특성 시리즈: {mbti} ({nick})]\n"
-            f"주제/기획: {topic or default_theme}\n"
-            f"핵심 키워드: {t1}, {t2}\n"
-            f"[규칙] '오늘의 운세' 같은 단순 운세는 절대 쓰지 말고, 순위(1위, TOP 3), 극단적 성향, 궁합, 사주 조합을 명확히 제시하세요.\n"
-            f"구성: 강렬한 후킹 → 사주 오행/십신 진단 → MBTI 심리 교차 분석(순위/특성) → 사이다 조언 → CTA\n"
-            f"해시태그: #{mbti} #MBTI순위 #MBTI특징 #사주특성 #MBTI궁합 #사주MBTI조합 #숏츠 #릴스"
-        )
-    elif series in ("DAILY", "ELEMENT", "SAJU"):
+        base = f"{REELS_PERSONA}\n\n[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n후킹으로 시작 → 사주 오행/십신 진단 → MBTI 심리 교차 분석 → 솔루션 → CTA\n해시태그: #{mbti} #사주 #운세 #MBTI궁합 #오늘의운세 #병오년 #릴스"
+    elif series == "DAILY":
         el = context.get("element", "목(木)")
-        el_display = el.split("(")[0]
+        el_display = el.split("(")[0]  # 한자 표기는 모델 프롬프트에서 제외해 narration에 새어들어가는 것을 방지
         info = FIVE_ELEMENTS.get(el, {})
-        default_theme = f"{el_display} 기운을 가진 사람들의 대박 특성"
-        base = (
-            f"{REELS_PERSONA}\n\n[사주 특성 및 조합 시리즈: {el_display}]\n"
-            f"주제/기획: {topic or default_theme}\n"
-            f"색상: {info.get('color','')} | 기운: {info.get('booster','')}\n"
-            f"[규칙] 단순 날짜별 '오늘의 운세'는 절대 금지! 특정 시기(올해 남은 3개월, 말년 대박 등), 사주 특성, MBTI와의 찰떡 조합 1위를 명확히 다루세요.\n"
-            f"구성: 도발적 후킹 → 사주 특성 분석 → 실천 팁/비법 → CTA\n"
-            f"해시태그: #{el_display} #사주특성 #대박사주 #사주순위 #사주MBTI조합 #사주궁합 #숏츠 #릴스"
-        )
+        base = f"{REELS_PERSONA}\n\n[오늘의 오행 운세 시리즈: {el_display}]\n색상: {info.get('color','')} | 기운: {info.get('booster','')}\n후킹 → 오행 본질 설명 → 실생활 팁 → CTA\n해시태그: #{el_display} #오늘의운세 #사주 #병오년 #릴스"
     elif series in DOMAIN_LABELS:
         label = DOMAIN_LABELS[series]
-        default_theme = f"{label}로 보는 대박 특성 및 1위 조합"
-        base = (
-            f"{REELS_PERSONA}\n\n[{label} 순위 & 특성 시리즈]\n"
-            f"주제: {topic or default_theme}\n"
-            f"[규칙] '오늘의 운세' 금지! 구체적 순위, 시기별 특성, 궁합에 집중하세요.\n"
-            f"구성: 후킹 → {label} 핵심 포인트 해석 → 현실 조언 → CTA\n"
-            f"해시태그: #{label} #{label}순위 #{label}특성 #사주MBTI #숏츠 #릴스"
-        )
+        topic = context.get("topic", f"오늘의 {label} 운세")
+        base = f"{REELS_PERSONA}\n\n[{label} 시리즈]\n주제: {topic}\n후킹 → {label} 핵심 포인트 해석 → 현실 조언 → CTA\n해시태그: #{label} #운세 #오늘의운세 #병오년 #릴스"
     else:
-        base = (
-            f"{REELS_PERSONA}\n\n[순위 및 특성 분석 시리즈]\n"
-            f"주제: {topic or 'MBTI 및 사주 특성 순위'}\n"
-            f"[규칙] 순위(1위, TOP 3), 구체적 상황별 특성, 궁합, 조합 1위를 중심으로 전개하세요."
-        )
+        base = f"{REELS_PERSONA}\n\n주제: {context.get('topic','운세 릴스')}"
 
     trend_hint = str(context.get("trend_hint", "")).strip()
     if trend_hint:
-        base += f"\n\n[참고할 실시간 트렌드 화제]\n\"{trend_hint}\"\n(이 화제를 자연스러운 순위/특성 비교나 후킹 예시로 녹여내세요.)"
+        base += f"\n\n[참고할 실시간 트렌드 헤드라인]\n\"{trend_hint}\"\n(이 트렌드를 자연스러운 후킹이나 사례로 녹여내되, 억지로 끼워 맞추지는 마세요.)"
     return base
 
 

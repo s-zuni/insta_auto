@@ -31,9 +31,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import get_ffmpeg_path
 from pipeline.text_utils import build_caption_chunks
 
-SUBTITLE_FONT_SIZE = 96
-# PlayResX(1080) 기준 좌우 마진(60*2) + 안전 여백을 제외한 자막 최대 표시 폭
-SUBTITLE_MAX_WIDTH = 960
+SUBTITLE_FONT_SIZE = 62
+# PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
+SUBTITLE_MAX_WIDTH = 880
 
 
 def format_ass_timestamp(seconds: float) -> str:
@@ -75,9 +75,6 @@ def generate_subtitles(
 ):
     """
     씬별 타임스탬프와 대사를 바탕으로 모바일 가독성이 뛰어난 ASS 및 SRT 자막을 생성합니다.
-    사용자 기획안 규격:
-    - 폰트: Pretendard / Inter, 크기: 96, 위치: X: 0 가운데 정렬, Y: 1423 (MarginV: 497)
-    - 스타일: 검정색 배경(외곽선) + 하얀색 글씨
     """
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
     if output_srt_path:
@@ -91,25 +88,19 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,Pretendard,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,6,2,8,60,60,1423,1
+Style: ReelsSub,NanumGothic,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     # 자막 줄바꿈을 ASS 렌더링과 동일한 폰트/크기로 실측하기 위한 측정용 폰트
-    font_candidates = [
-        PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf",
-        PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf",
-    ]
-    measure_font = None
-    for fc in font_candidates:
-        if fc.is_file():
-            try:
-                measure_font = ImageFont.truetype(str(fc), SUBTITLE_FONT_SIZE)
-                break
-            except Exception:
-                pass
-    if not measure_font:
+    font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+    try:
+        measure_font = (
+            ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE)
+            if font_path.is_file() else ImageFont.load_default()
+        )
+    except Exception:
         measure_font = ImageFont.load_default()
 
     ass_dialogues = []
