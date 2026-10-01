@@ -124,7 +124,17 @@ def get_crawled_reels_proposals() -> Dict[str, Any]:
     def _label(series: str) -> str:
         return {"SAJU": "사주", "MBTI": "MBTI", "SHINJEOM": "신점", "JAMIDOSU": "자미두수", "TAROT": "타로"}.get(series, series)
 
-    prompt = f"""
+    # 성과 피드백: 반응이 좋았던 과거 게시물을 '참고 예시'로만 제공 (도메인 선택은 계속 무작위)
+    examples_block = ""
+    try:
+        from pipeline.insights import get_top_examples, format_examples_for_prompt
+        examples_block = format_examples_for_prompt(get_top_examples(n=3))
+    except Exception as e:
+        print(f"[CRAWLER][WARN] 성과 예시 로드 실패(무시): {e}")
+
+    prompt = f"""{examples_block}
+
+
 다음은 운세(사주/MBTI/신점/자미두수/타로) 카테고리에서만 수집한 실시간 트렌드 헤드라인입니다:
 - [{_label(series_a)}] 관련: "{topic_a}"
 - [{_label(series_b)}] 관련: "{topic_b}"
@@ -186,6 +196,31 @@ JSON 포맷 예시:
             "summary": f"{_label(series_b)} 관점에서 본 최신 화제 '{topic_b}' 심층 분석",
         },
     }
+
+
+def classify_custom_topic(text: str) -> Dict[str, str]:
+    """
+    사용자가 직접 입력한 주제를 파이프라인 series/mbti/topic으로 분류합니다.
+    - 텍스트 안의 MBTI 4글자 유형이 있으면 MBTI 시리즈(+해당 유형)
+    - 타로/신점/자미두수 키워드가 있으면 해당 시리즈
+    - 그 외는 SAJU 시리즈 (운세 도메인 제약 유지)
+    """
+    import re
+
+    t = text.strip()
+    upper = t.upper()
+    found = next((m for m in MBTI_TYPES if re.search(rf"(?<![A-Z]){m}(?![A-Z])", upper)), "")
+    if found:
+        return {"series": "MBTI", "mbti": found, "topic": t}
+    if "타로" in t:
+        return {"series": "TAROT", "mbti": "", "topic": t}
+    if "신점" in t:
+        return {"series": "SHINJEOM", "mbti": "", "topic": t}
+    if "자미두수" in t:
+        return {"series": "JAMIDOSU", "mbti": "", "topic": t}
+    if "MBTI" in upper or "엠비티아이" in t:
+        return {"series": "MBTI", "mbti": random.choice(MBTI_TYPES), "topic": t}
+    return {"series": "SAJU", "mbti": "", "topic": t}
 
 
 if __name__ == "__main__":

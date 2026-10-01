@@ -111,3 +111,13 @@ python main.py --topic "AI 생산성 꿀팁" --mock-script --mock-images
 - **자막**: 인스타그램 UI(하단 버튼, 프로필 영역)를 가리지 않는 최적화된 마진(320px)과 볼드 테두리 스타일 적용
 - **출력 파일**: `assets/output/final_reel.mp4` 및 인스타그램 업로드용 해시태그 본문 `assets/output/caption.txt`
 
+
+## 추가 설정 (Cloudinary / BGM / Insights)
+
+- **Cloudinary**: 가입 후 Dashboard의 API Environment variable(`cloudinary://key:secret@cloud_name`)을 `.env`의
+  `CLOUDINARY_URL`에 등록. Instagram 게시용 영상/커버/캐러셀 이미지는 모두 Cloudinary 공개 URL을 사용합니다.
+- **BGM(Pixabay)**: pixabay.com/music 에서 mp3를 내려받아 `assets/bgm/<bright|calm|mystic|default>/`에 넣으세요.
+  자세한 내용은 `assets/bgm/README.md`.
+- **Insights**: 토큰에 `instagram_manage_insights` 권한 필요. 텔레그램 `/insights`로 리포트, 봇이 매시간 자동 수집.
+- **직접 주제 입력**: 텔레그램 `/topic 원하는 주제` 또는 기획안 메시지의 '직접 주제 입력' 버튼.
+- **캐러셀**: `python main.py --series MBTI --mbti INFJ --topic "주제" --format carousel`

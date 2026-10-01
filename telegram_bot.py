@@ -50,7 +50,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from main import run_pipeline
+from main import run_pipeline, run_carousel_pipeline
 
 try:
     import zoneinfo
@@ -140,6 +140,21 @@ def save_last_chat_id(chat_id: str | int):
         return
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT OR REPLACE INTO bot_settings VALUES ('last_chat_id', ?)", (str(chat_id),))
+        conn.commit()
+
+def _set_setting(key: str, value: str):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("INSERT OR REPLACE INTO bot_settings VALUES (?, ?)", (key, value))
+        conn.commit()
+
+def _get_setting(key: str) -> str:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT value FROM bot_settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else ""
+
+def _del_setting(key: str):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM bot_settings WHERE key = ?", (key,))
         conn.commit()
 
 def get_last_chat_id() -> str:
@@ -271,6 +286,11 @@ def generate_and_send_proposals(chat_id: str | int = None):
         "inline_keyboard": [
             [{"text": f"✅ A안 — {label_a} 릴스 제작 & 게시", "callback_data": ka}],
             [{"text": f"✅ B안 — {label_b} 릴스 제작 & 게시", "callback_data": kb}],
+            [
+                {"text": "🖼 A안 캐러셀", "callback_data": f"car:{ka}"},
+                {"text": "🖼 B안 캐러셀", "callback_data": f"car:{kb}"},
+            ],
+            [{"text": "✍️ 둘 다 별로예요 — 직접 주제 입력", "callback_data": "custom_topic"}],
             [{"text": "🔄 새 기획안 다시 생성", "callback_data": "regenerate"}],
         ]
     }
@@ -333,6 +353,8 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
                 f"📁 <b>로컬 파일:</b> <code>{html.escape(str(v_path))}</code>"
             ]
 
+            if res.get("publish_blocked"):
+                lines.append("⛔ <b>자동 게시 중단:</b> 플레이스홀더 씬이 있어 Instagram/YouTube 게시를 건너뛰었습니다. 이미지 엔진 상태 확인 후 재시도하세요.")
             if placeholder_count:
                 lines.append(
                     f"⚠️ <b>이미지 경고:</b> {placeholder_count}/{total_scenes}개 씬에서 "
@@ -367,9 +389,83 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def execute_carousel_task(plan: dict, chat_id: str | int = None):
+    if not PIPELINE_LOCK.acquire(blocking=False):
+        tg_send("⚠️ 현재 다른 제작/업로드 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.", chat_id=chat_id)
+        return
+
+    title = plan.get("title", "캐러셀")
+
+    def _worker():
+        try:
+            tg_send(
+                f"🖼 <b>[{html.escape(title)}]</b> 캐러셀 제작을 시작합니다!\n"
+                f"대본 → 표지 비주얼 → 슬라이드 렌더 → 호스팅 → Instagram 게시\n⏳ 약 1분 소요됩니다.",
+                chat_id=chat_id,
+            )
+            res = run_carousel_pipeline(
+                series=plan.get("series", "MBTI"),
+                mbti=plan.get("mbti", "") or "ENFP",
+                element=plan.get("element", "") or "목(木)",
+                topic=plan.get("topic", ""),
+                trend_hint=plan.get("trend_hint", ""),
+                publish_insta=True,
+            )
+            insta = res.get("instagram", {})
+            lines = [f"🎉 <b>[{html.escape(title)}] 캐러셀 완료!</b> ({len(res.get('slide_paths', []))}장)\n"]
+            if insta.get("link"):
+                lines.append(f"📸 <b>Instagram 캐러셀:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
+            elif insta.get("error"):
+                lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:200])}")
+            elif insta.get("skipped"):
+                lines.append("⛔ <b>자동 게시 중단:</b> 표지 이미지 생성에 실패해 게시를 건너뛰었습니다.")
+            tg_send("\n".join(lines), chat_id=chat_id)
+        except Exception as e:
+            print(f"[CAROUSEL][ERROR] {e}")
+            tg_send(f"❌ <b>캐러셀 제작 중 오류:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
+        finally:
+            PIPELINE_LOCK.release()
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 # ─────────────────────────────────────────────────────────────
 # 5. 콜백 처리
 # ─────────────────────────────────────────────────────────────
+def begin_custom_topic(chat_id: str | int):
+    _set_setting(f"await_topic:{chat_id}", "1")
+    tg_send(
+        "✍️ <b>만들고 싶은 주제를 한 줄로 보내주세요.</b>\n"
+        "예) <code>INFJ가 연애에서 자꾸 도망치는 이유</code>, <code>타로로 보는 이번 달 재물운</code>\n"
+        "• MBTI 유형이 들어 있으면 MBTI 시리즈, 타로/신점/자미두수 키워드가 있으면 해당 시리즈, 그 외는 사주 시리즈로 제작돼요.\n"
+        "• 취소: /cancel",
+        chat_id=chat_id,
+    )
+
+
+def handle_custom_topic_text(text: str, chat_id: str | int):
+    """사용자가 입력한 주제를 분류해 저장하고 릴스/캐러셀 중 포맷을 고르게 합니다."""
+    from pipeline.topic_crawler import classify_custom_topic
+
+    info = classify_custom_topic(text)
+    key = f"u_{info['series']}_{int(time.time())}"
+    title = text.strip()[:15]
+    save_proposal(key, info["series"], info["mbti"], "", title, topic=info["topic"], trend_hint="")
+
+    label = DOMAIN_LABELS.get(info["series"], info["series"]) + (f" {info['mbti']}" if info["mbti"] else "")
+    markup = {
+        "inline_keyboard": [
+            [{"text": "🎬 릴스로 제작 & 게시", "callback_data": key}],
+            [{"text": "🖼 캐러셀로 제작 & 게시", "callback_data": f"car:{key}"}],
+        ]
+    }
+    tg_send(
+        f"📝 <b>직접 입력 주제</b>\n• 시리즈: <b>{html.escape(label)}</b>\n• 주제: {html.escape(info['topic'])}\n\n어떤 포맷으로 만들까요?",
+        reply_markup=markup,
+        chat_id=chat_id,
+    )
+
+
 def handle_callback(cq: dict, chat_id: str | int = None):
     cbid = cq.get("id")
     data = cq.get("data", "")
@@ -379,12 +475,20 @@ def handle_callback(cq: dict, chat_id: str | int = None):
         generate_and_send_proposals(chat_id=chat_id)
         return
 
-    plan = get_proposal(data)
+    if data == "custom_topic":
+        begin_custom_topic(chat_id)
+        return
+
+    as_carousel = data.startswith("car:")
+    plan = get_proposal(data[4:] if as_carousel else data)
     if not plan:
         tg_send("⚠️ 기획안 정보가 만료되었거나 찾을 수 없습니다. /generate 로 다시 요청하세요.", chat_id=chat_id)
         return
 
-    execute_pipeline_task(plan, chat_id=chat_id)
+    if as_carousel:
+        execute_carousel_task(plan, chat_id=chat_id)
+    else:
+        execute_pipeline_task(plan, chat_id=chat_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -409,6 +513,20 @@ def start_scheduler():
             scheduled_daily_job,
             CronTrigger(hour=17, minute=30, timezone=KST),
             id="daily_reels_proposal",
+            replace_existing=True
+        )
+        # 게시 24h/72h/7d 시점 성과 스냅샷 수집 (매시간, 대상 없으면 즉시 종료)
+        def _collect_insights_job():
+            try:
+                from pipeline.insights import collect_due_insights
+                collect_due_insights()
+            except Exception as e:
+                print(f"[INSIGHTS][ERROR] {e}")
+
+        scheduler.add_job(
+            _collect_insights_job,
+            CronTrigger(minute=10, timezone=KST),
+            id="collect_insights",
             replace_existing=True
         )
         scheduler.start()
@@ -474,6 +592,8 @@ def run_bot():
                         tg_send(
                             "🔮 <b>MBTI×사주 릴스 자동화 봇</b>\n\n"
                             "/generate — 기획안 A/B안 즉시 생성\n"
+                            "/topic 주제 — 직접 주제 지정 (릴스/캐러셀 선택)\n"
+                            "/insights — 성과 리포트\n"
                             "/status — 현재 시스템 상태 확인",
                             chat_id=sender_chat
                         )
@@ -481,6 +601,33 @@ def run_bot():
                     # /generate 명령어 (공백이나 @봇이름 붙은 경우 모두 지원)
                     elif txt.startswith("/generate"):
                         generate_and_send_proposals(chat_id=sender_chat)
+
+                    # /topic [주제] — 주제를 바로 지정하거나, 인자가 없으면 다음 메시지를 주제로 받음
+                    elif txt.startswith("/topic"):
+                        arg = txt[len("/topic"):].split(None, 1)
+                        arg_text = arg[1].strip() if len(arg) > 1 and not arg[0].startswith("@") else ""
+                        if arg_text:
+                            handle_custom_topic_text(arg_text, sender_chat)
+                        else:
+                            begin_custom_topic(sender_chat)
+
+                    elif txt.startswith("/cancel"):
+                        _del_setting(f"await_topic:{sender_chat}")
+                        tg_send("취소했어요.", chat_id=sender_chat)
+
+                    # /insights — 성과 리포트
+                    elif txt.startswith("/insights"):
+                        from pipeline.insights import collect_due_insights, weekly_report
+                        try:
+                            collect_due_insights()
+                        except Exception as e:
+                            print(f"[INSIGHTS][ERROR] {e}")
+                        tg_send(weekly_report(), chat_id=sender_chat)
+
+                    # 주제 입력 대기 중인 상태의 일반 텍스트 = 사용자 지정 주제
+                    elif txt and not txt.startswith("/") and _get_setting(f"await_topic:{sender_chat}"):
+                        _del_setting(f"await_topic:{sender_chat}")
+                        handle_custom_topic_text(txt, sender_chat)
 
                     # /status 명령어
                     elif txt.startswith("/status"):

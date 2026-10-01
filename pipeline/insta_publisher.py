@@ -1,13 +1,13 @@
 """
 Instagram Graph API Automatic Reels Publisher.
-Publishes vertical 9:16 videos to Instagram account '@mbti_ju'.
+Publishes vertical 9:16 Reels and image carousels to Instagram account '@mbti_ju'.
 """
 import os
 import sys
 import time
 import requests
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -18,6 +18,8 @@ if sys.platform == "win32":
         pass
 
 load_dotenv()
+
+GRAPH_VERSION = os.getenv("INSTAGRAM_GRAPH_VERSION", "v21.0")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -30,7 +32,7 @@ def resolve_instagram_account_id(account_id: str, access_token: str) -> str:
     (예: 페이지 ID 1243911252149395 -> 인스타그램 비즈니스 계정 ID 17841438562850140)
     """
     try:
-        url = f"https://graph.facebook.com/v19.0/{account_id}"
+        url = f"https://graph.facebook.com/{GRAPH_VERSION}/{account_id}"
         r = requests.get(
             url,
             params={"fields": "id,name,instagram_business_account", "access_token": access_token},
@@ -54,7 +56,7 @@ def _check_token_validity(account_id: str, access_token: str) -> Optional[str]:
     """
     try:
         res = requests.get(
-            f"https://graph.facebook.com/v19.0/{account_id}",
+            f"https://graph.facebook.com/{GRAPH_VERSION}/{account_id}",
             params={"fields": "id,username,name", "access_token": access_token},
             timeout=15,
         )
@@ -75,89 +77,189 @@ def _check_token_validity(account_id: str, access_token: str) -> Optional[str]:
         return f"Instagram 토큰 사전 점검 중 네트워크 오류: {e}"
 
 
+def _graph(path: str = "") -> str:
+    return f"https://graph.facebook.com/{GRAPH_VERSION}/{path}".rstrip("/")
+
+
+def _api_error(res: requests.Response) -> str:
+    try:
+        return res.json().get("error", {}).get("message", res.text)
+    except ValueError:
+        return res.text
+
+
+def _wait_container(container_id: str, access_token: str, timeout: int = 300, interval: int = 5) -> Optional[str]:
+    """
+    컨테이너가 FINISHED가 될 때까지 대기합니다.
+    성공하면 None, 실패/타임아웃이면 원인 메시지를 반환합니다. (미완료 상태로 media_publish를 호출하지 않기 위함)
+    """
+    start_t = time.time()
+    last_status = "UNKNOWN"
+    while time.time() - start_t < timeout:
+        try:
+            s_res = requests.get(
+                _graph(container_id),
+                params={"fields": "status_code,status", "access_token": access_token},
+                timeout=15,
+            )
+            if s_res.ok:
+                body = s_res.json()
+                last_status = body.get("status_code", "UNKNOWN")
+                if last_status == "FINISHED":
+                    return None
+                if last_status in ("ERROR", "EXPIRED"):
+                    return f"Instagram 미디어 처리 실패({last_status}): {body.get('status', '')}"
+        except requests.RequestException as e:
+            print(f"  [WARN] 컨테이너 상태 조회 일시 오류: {e}")
+        time.sleep(interval)
+    return f"Instagram 미디어 처리 대기 시간 초과({timeout}초, 마지막 상태: {last_status})"
+
+
+def _publish_container(account_id: str, container_id: str, access_token: str, label: str) -> Dict[str, Any]:
+    """FINISHED 상태의 컨테이너를 게시하고, 실제 permalink를 조회해 반환합니다."""
+    p_res = requests.post(
+        _graph(f"{account_id}/media_publish"),
+        data={"creation_id": container_id, "access_token": access_token},
+        timeout=30,
+    )
+    if not p_res.ok:
+        err_msg = _api_error(p_res)
+        print(f"[ERROR] {label} 게시 실패: {err_msg}")
+        return {"error": err_msg}
+
+    post_id = p_res.json().get("id")
+    link = ""
+    try:
+        # media id로는 URL을 만들 수 없고, shortcode가 담긴 permalink를 조회해야 합니다.
+        l_res = requests.get(
+            _graph(post_id),
+            params={"fields": "permalink", "access_token": access_token},
+            timeout=15,
+        )
+        if l_res.ok:
+            link = l_res.json().get("permalink", "")
+    except requests.RequestException as e:
+        print(f"  [WARN] permalink 조회 실패: {e}")
+
+    print(f"[SUCCESS] 🎉 인스타그램 {label} 게시 완료! (게시글 ID: {post_id}) {link}")
+    return {"id": post_id, "status": "PUBLISHED", "link": link}
+
+
+def _prepare_account(account_id: Optional[str], access_token: Optional[str]):
+    account_id = account_id or os.getenv("INSTAGRAM_ACCOUNT_ID")
+    access_token = access_token or os.getenv("INSTAGRAM_ACCESS_TOKEN")
+    if not account_id or not access_token:
+        raise ValueError("INSTAGRAM_ACCOUNT_ID 및 INSTAGRAM_ACCESS_TOKEN이 필요합니다.")
+
+    # 계정 ID가 페이스북 페이지 ID일 경우 실제 인스타그램 비즈니스 ID로 자동 전환
+    account_id = resolve_instagram_account_id(account_id, access_token)
+    token_error = _check_token_validity(account_id, access_token)
+    return account_id, access_token, token_error
+
+
 def publish_reel_to_instagram(
     video_url: str,
     caption: str,
     account_id: Optional[str] = None,
-    access_token: Optional[str] = None
+    access_token: Optional[str] = None,
+    cover_url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Instagram Graph API를 사용하여 릴스 영상(video_url)과 캡션을 자동 게시합니다.
+    cover_url을 주면 해당 이미지를 릴스 커버로 사용합니다.
     """
-    if not account_id:
-        account_id = os.getenv("INSTAGRAM_ACCOUNT_ID")
-    if not access_token:
-        access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
-
-    if not account_id or not access_token:
-        raise ValueError("INSTAGRAM_ACCOUNT_ID 및 INSTAGRAM_ACCESS_TOKEN이 필요합니다.")
-
-    # 0. 계정 ID가 페이스북 페이지 ID일 경우 실제 인스타그램 비즈니스 ID로 자동 전환
-    account_id = resolve_instagram_account_id(account_id, access_token)
-
-    # 1. 토큰 사전 점검
-    token_error = _check_token_validity(account_id, access_token)
+    account_id, access_token, token_error = _prepare_account(account_id, access_token)
     if token_error:
         print(f"[ERROR] {token_error}")
         return {"error": token_error}
 
-    base_url = f"https://graph.facebook.com/v19.0/{account_id}"
-
-    # 2. 릴스 미디어 컨테이너 생성
     print(f"[INSTA] 릴스 미디어 컨테이너 생성 요청 (계정 ID: {account_id})...")
-    container_url = f"{base_url}/media"
-    container_payload = {
+    reel_payload = {
         "media_type": "REELS",
         "video_url": video_url,
         "caption": caption,
-        "access_token": access_token
+        "access_token": access_token,
     }
-
-    res = requests.post(container_url, data=container_payload, timeout=20)
+    if cover_url:
+        reel_payload["cover_url"] = cover_url
+    res = requests.post(_graph(f"{account_id}/media"), data=reel_payload, timeout=30)
     if not res.ok:
-        err_msg = res.json().get("error", {}).get("message", res.text)
+        err_msg = _api_error(res)
         print(f"[ERROR] 릴스 컨테이너 생성 실패: {err_msg}")
         return {"error": err_msg, "status_code": res.status_code}
 
     container_id = res.json().get("id")
     print(f"  ✅ 컨테이너 생성 완료 (ID: {container_id})")
 
-    # 3. 업로드 및 인코딩 상태 대기 (최대 5분)
     print("  ⏳ Instagram 인코딩 및 처리 대기 중...")
-    status_url = f"https://graph.facebook.com/v19.0/{container_id}"
-    status_params = {"fields": "status_code", "access_token": access_token}
+    wait_error = _wait_container(container_id, access_token, timeout=300, interval=10)
+    if wait_error:
+        print(f"  ❌ {wait_error}")
+        return {"error": wait_error}
+    print("  ✅ 영상 인코딩 완료!")
 
-    start_t = time.time()
-    while time.time() - start_t < 300:
-        s_res = requests.get(status_url, params=status_params, timeout=15)
-        if s_res.ok:
-            status_code = s_res.json().get("status_code")
-            if status_code == "FINISHED":
-                print("  ✅ 영상 인코딩 완료!")
-                break
-            elif status_code == "ERROR":
-                print("  ❌ Instagram 영상 처리 중 에러가 발생했습니다.")
-                return {"error": "Instagram media processing error", "details": s_res.json()}
-        time.sleep(10)
-
-    # 4. 릴스 게시 요청
     print("[INSTA] 릴스 최종 게시(Publish) 실행 중...")
-    publish_url = f"{base_url}/media_publish"
-    publish_payload = {
-        "creation_id": container_id,
-        "access_token": access_token
-    }
+    return _publish_container(account_id, container_id, access_token, "릴스")
 
-    p_res = requests.post(publish_url, data=publish_payload, timeout=20)
-    if p_res.ok:
-        post_id = p_res.json().get("id")
-        permalink = f"https://www.instagram.com/p/{post_id}/"
-        print(f"[SUCCESS] 🎉 인스타그램 릴스 게시 완료! (게시글 ID: {post_id})")
-        return {"id": post_id, "status": "PUBLISHED", "link": permalink}
-    else:
-        err_msg = p_res.json().get("error", {}).get("message", p_res.text)
-        print(f"[ERROR] 릴스 게시 실패: {err_msg}")
+
+def publish_carousel_to_instagram(
+    image_urls: List[str],
+    caption: str,
+    account_id: Optional[str] = None,
+    access_token: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    공개 접근 가능한 이미지 URL 2~10개로 캐러셀 게시물을 자동 게시합니다.
+    (자식 컨테이너 생성 -> CAROUSEL 컨테이너 생성 -> FINISHED 대기 -> media_publish)
+    """
+    if not 2 <= len(image_urls) <= 10:
+        return {"error": f"캐러셀은 이미지 2~10장이 필요합니다 (현재 {len(image_urls)}장)."}
+
+    account_id, access_token, token_error = _prepare_account(account_id, access_token)
+    if token_error:
+        print(f"[ERROR] {token_error}")
+        return {"error": token_error}
+
+    child_ids: List[str] = []
+    for idx, url in enumerate(image_urls, 1):
+        res = requests.post(
+            _graph(f"{account_id}/media"),
+            data={"image_url": url, "is_carousel_item": "true", "access_token": access_token},
+            timeout=30,
+        )
+        if not res.ok:
+            err_msg = _api_error(res)
+            print(f"[ERROR] 캐러셀 슬라이드 {idx} 컨테이너 생성 실패: {err_msg}")
+            return {"error": f"슬라이드 {idx} 생성 실패: {err_msg}"}
+        child_ids.append(res.json()["id"])
+        print(f"  ✅ 슬라이드 {idx}/{len(image_urls)} 컨테이너 생성 (ID: {child_ids[-1]})")
+
+    for idx, cid in enumerate(child_ids, 1):
+        wait_error = _wait_container(cid, access_token, timeout=120, interval=3)
+        if wait_error:
+            return {"error": f"슬라이드 {idx}: {wait_error}"}
+
+    res = requests.post(
+        _graph(f"{account_id}/media"),
+        data={
+            "media_type": "CAROUSEL",
+            "children": ",".join(child_ids),
+            "caption": caption,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    if not res.ok:
+        err_msg = _api_error(res)
+        print(f"[ERROR] 캐러셀 컨테이너 생성 실패: {err_msg}")
         return {"error": err_msg}
+
+    carousel_id = res.json()["id"]
+    wait_error = _wait_container(carousel_id, access_token, timeout=120, interval=3)
+    if wait_error:
+        return {"error": wait_error}
+
+    return _publish_container(account_id, carousel_id, access_token, "캐러셀")
 
 
 if __name__ == "__main__":
@@ -165,7 +267,7 @@ if __name__ == "__main__":
     token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
     resolved_id = resolve_instagram_account_id(account_id, token)
     print(f"[INFO] Instagram 계정 상태 확인 (원래 ID: {account_id} -> 최종 ID: {resolved_id})")
-    url = f"https://graph.facebook.com/v19.0/{resolved_id}"
+    url = f"https://graph.facebook.com/{GRAPH_VERSION}/{resolved_id}"
     res = requests.get(url, params={"fields": "id,username,name", "access_token": token})
     if res.ok:
         print("연동 계정 정보:", res.json())

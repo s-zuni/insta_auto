@@ -29,7 +29,7 @@ class Scene(BaseModel):
     )
     visual_prompt: str = Field(
         ...,
-        description="Imagen 3 생성용 구체적 영문 프롬프트. 9:16 세로 구도, 시네마틱 조명, 고화질 묘사 포함, 텍스트 배제 지침 포함."
+        description="Imagen 3 생성용 구체적 영문 프롬프트. 16:9 가로(landscape) 구도, 시네마틱 조명, 고화질 묘사 포함, 텍스트 배제 지침 포함."
     )
     duration_estimate: int = Field(
         ...,
@@ -99,8 +99,8 @@ SYSTEM_PROMPT = """
      (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)
 3. visual_prompt (Imagen 3 전용 프롬프트 가이드):
    - 반드시 '영문(English)'으로 작성.
-   - 인스타그램 릴스 9:16 비율에 최적화된 구도, 피사체, 조명, 색감, 카메라 앵글을 구체적으로 묘사.
-   - 키워드 예시: "Vertical 9:16 ratio, cinematic lighting, photorealistic, 8k resolution, sharp focus, vibrant colors, shallow depth of field".
+   - 이미지는 16:9 가로 비율로 생성되어 릴스 프레임 중앙에 배치됩니다(세로 구도 금지). 가로 비율에 맞는 구도, 피사체, 조명, 색감, 카메라 앵글을 구체적으로 묘사.
+   - 키워드 예시: "Horizontal 16:9 landscape ratio, cinematic lighting, photorealistic, 8k resolution, sharp focus, vibrant colors, shallow depth of field".
    - 글자나 텍스트가 이미지에 찍히지 않도록 "no text, no letters, no watermark, clean composition"을 항상 포함.
 4. instagram_caption:
    - 이모지를 적절히 배치하여 가독성을 높이고 영상 내용을 한눈에 요약.
@@ -162,25 +162,25 @@ def create_sample_script(topic: str) -> ReelsScript:
             Scene(
                 scene_id=1,
                 narration="아직도 이걸 모르고 계셨나요? 30초 만에 완벽 정리해 드립니다!",
-                visual_prompt="Vertical 9:16 ratio, shocked person looking at a glowing futuristic smartphone screen in modern minimalist room, cinematic dramatic lighting, photorealistic, 8k, no text, no watermark",
+                visual_prompt="Horizontal 16:9 landscape ratio, shocked person looking at a glowing futuristic smartphone screen in modern minimalist room, cinematic dramatic lighting, photorealistic, 8k, no text, no watermark",
                 duration_estimate=4
             ),
             Scene(
                 scene_id=2,
                 narration="첫 번째로 기억해야 할 핵심은 바로 효율적인 자동화 파이프라인의 구축입니다.",
-                visual_prompt="Vertical 9:16 ratio, sleek modern digital workspace with glowing nodes connecting seamlessly, neon blue and warm orange aesthetic, cinematic depth of field, photorealistic, no text",
+                visual_prompt="Horizontal 16:9 landscape ratio, sleek modern digital workspace with glowing nodes connecting seamlessly, neon blue and warm orange aesthetic, cinematic depth of field, photorealistic, no text",
                 duration_estimate=6
             ),
             Scene(
                 scene_id=3,
                 narration="인공지능 도구들을 유기적으로 결합하면 반복 작업의 시간을 90% 이상 줄일 수 있죠.",
-                visual_prompt="Vertical 9:16 ratio, futuristic hourglass with glowing light particles flowing upward, cinematic high tech studio background, photorealistic, vibrant colors, 8k, no text",
+                visual_prompt="Horizontal 16:9 landscape ratio, futuristic hourglass with glowing light particles flowing upward, cinematic high tech studio background, photorealistic, vibrant colors, 8k, no text",
                 duration_estimate=6
             ),
             Scene(
                 scene_id=4,
                 narration="지금 바로 저장해 두시고, 다음 프로젝트에 직접 적용해 보세요!",
-                visual_prompt="Vertical 9:16 ratio, inspiring bright sunrise over modern city skyline viewed from high rise window, golden hour warm sunlight, cinematic masterpiece, photorealistic, no text",
+                visual_prompt="Horizontal 16:9 landscape ratio, inspiring bright sunrise over modern city skyline viewed from high rise window, golden hour warm sunlight, cinematic masterpiece, photorealistic, no text",
                 duration_estimate=4
             )
         ],

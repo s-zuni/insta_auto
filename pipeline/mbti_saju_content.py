@@ -66,6 +66,11 @@ def build_series_prompt(series: str, context: dict) -> str:
     else:
         base = f"{REELS_PERSONA}\n\n주제: {context.get('topic','운세 릴스')}"
 
+    # MBTI/DAILY 시리즈는 기본 틀만 있으므로, 구체적 주제(기획안/사용자 지정)가 있으면 반드시 반영
+    custom_topic = str(context.get("topic", "")).strip()
+    if custom_topic and series in ("MBTI", "DAILY", "ELEMENT"):
+        base += f"\n\n[이번 영상의 구체적 주제 - 반드시 이 주제를 중심으로 작성]\n{custom_topic}"
+
     trend_hint = str(context.get("trend_hint", "")).strip()
     if trend_hint:
         base += f"\n\n[참고할 실시간 트렌드 헤드라인]\n\"{trend_hint}\"\n(이 트렌드를 자연스러운 후킹이나 사례로 녹여내되, 억지로 끼워 맞추지는 마세요.)"
@@ -82,7 +87,7 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
 JSON 스키마:
 - title: 릴스 제목 (호기심 자극)
 - hook: 초반 3초 후킹 대사
-- scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문 9:16 cinematic no text], duration_estimate)
+- scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문 가로 16:9 landscape cinematic no text], duration_estimate)
 - instagram_caption: 이모지 포함 + 해시태그 10개 이상"""
     try:
         client = get_gemini_client()
@@ -112,15 +117,15 @@ def _fallback(series: str, context: dict) -> ReelsScript:
         hook=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.",
         scenes=[
             Scene(scene_id=1, narration=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.", duration_estimate=4,
-                  visual_prompt=f"Vertical 9:16 ratio, mystical glowing {mbti} text on dark cosmic background, Korean fortune aesthetic, cinematic, no text"),
+                  visual_prompt=f"Horizontal 16:9 landscape ratio, mystical glowing {mbti} text on dark cosmic background, Korean fortune aesthetic, cinematic, no text"),
             Scene(scene_id=2, narration=f"{mbti}는 {t1} 성향이 강하죠. 사주로 보면 식상과 인성 기운이 교차하는 복잡한 구조를 가진 경우가 많습니다.", duration_estimate=6,
-                  visual_prompt="Vertical 9:16 ratio, ancient Korean fortune book, candlelight, mystical symbols, cinematic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, ancient Korean fortune book, candlelight, mystical symbols, cinematic, no text"),
             Scene(scene_id=3, narration=f"특히 {t2} 기질이 강한 시기에는 관성과의 충돌이 생길 수 있어요.", duration_estimate=6,
-                  visual_prompt="Vertical 9:16 ratio, person silhouette at crossroads with glowing energy paths, Korean traditional aesthetic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, person silhouette at crossroads with glowing energy paths, Korean traditional aesthetic, no text"),
             Scene(scene_id=4, narration="지금 당장 이 행동 하나만 바꿔 보세요.", duration_estimate=5,
-                  visual_prompt="Vertical 9:16 ratio, close-up hands writing in journal, glowing ink, warm bokeh, cinematic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, close-up hands writing in journal, glowing ink, warm bokeh, cinematic, no text"),
             Scene(scene_id=5, narration="도움이 됐다면 저장하고 팔로우해 두세요.", duration_estimate=4,
-                  visual_prompt="Vertical 9:16 ratio, glowing bookmark icon above smartphone, clean modern aesthetic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, glowing bookmark icon above smartphone, clean modern aesthetic, no text"),
         ],
         instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n#{mbti} #MBTI운세 #사주 #운세 #오늘의운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
     )

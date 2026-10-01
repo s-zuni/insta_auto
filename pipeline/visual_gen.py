@@ -7,6 +7,7 @@ with a fixed top title header, a centered 16:9 visual, and a bottom narration su
 import os
 import sys
 import io
+import shutil
 import time
 import requests
 from dataclasses import dataclass, field
@@ -314,6 +315,12 @@ def generate_scene_images(
                 if im.size != (1080, 608):
                     im_resized = im.resize((1080, 608), Image.Resampling.LANCZOS)
                     im_resized.save(img_path, "JPEG", quality=95)
+        except Exception:
+            pass
+
+        # 커버 프레임 생성용으로 합성 전 16:9 원본을 보존 (scene_XX_raw.jpg)
+        try:
+            shutil.copy2(img_path, output_dir / f"scene_{scene_id:02d}_raw.jpg")
         except Exception:
             pass
 

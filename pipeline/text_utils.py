@@ -72,6 +72,139 @@ def wrap_by_pixel_width(text: str, font: "ImageFont.FreeTypeFont", max_width: in
     return lines
 
 
+_PUNCT_RE = re.compile(r"[^\w가-힣]", re.UNICODE)
+
+
+def _norm(token: str) -> str:
+    return _PUNCT_RE.sub("", token)
+
+
+def align_word_times(
+    words: List[str],
+    word_timings: list,
+    scene_start: float,
+    scene_end: float,
+) -> List[Tuple[float, float]]:
+    """
+    나레이션 어절(words)마다 (start, end) 시각을 돌려줍니다.
+    word_timings(TTS 단어 경계)와 어절이 1:1이 아니어도(예: edge-tts가 어절을 다르게 쪼갬)
+    글자 누적 위치로 대응시키고, 대응이 안 되면 씬 구간을 글자 수 비례로 나눕니다.
+    word_timings 항목은 .word/.start_time/.end_time 속성 또는 dict 키를 가진 객체여야 합니다.
+    """
+    def g(o, k):
+        return getattr(o, k) if hasattr(o, k) else o[k]
+
+    n = len(words)
+    if n == 0:
+        return []
+
+    def proportional() -> List[Tuple[float, float]]:
+        weights = [max(len(_norm(w)), 1) for w in words]
+        total = sum(weights)
+        out, cur = [], scene_start
+        for w in weights:
+            nxt = cur + (scene_end - scene_start) * w / total
+            out.append((cur, nxt))
+            cur = nxt
+        return out
+
+    if not word_timings:
+        return proportional()
+
+    timings = [(_norm(str(g(t, "word"))), float(g(t, "start_time")), float(g(t, "end_time"))) for t in word_timings]
+    timings = [t for t in timings if t[0]]
+    t_chars = sum(len(t[0]) for t in timings)
+    w_chars = sum(len(_norm(w)) for w in words)
+    if not timings or t_chars == 0 or abs(t_chars - w_chars) > max(3, 0.1 * w_chars):
+        return proportional()
+
+    # 글자 누적 위치 -> 해당 글자가 속한 TTS 단어 인덱스
+    char_to_timing: List[int] = []
+    for ti, t in enumerate(timings):
+        char_to_timing += [ti] * len(t[0])
+
+    result: List[Tuple[float, float]] = []
+    pos = 0
+    for w in words:
+        ln = len(_norm(w))
+        if ln == 0:
+            prev_end = result[-1][1] if result else scene_start
+            result.append((prev_end, prev_end))
+            continue
+        first = char_to_timing[min(pos, len(char_to_timing) - 1)]
+        last = char_to_timing[min(pos + ln - 1, len(char_to_timing) - 1)]
+        result.append((timings[first][1], timings[last][2]))
+        pos += ln
+
+    # 시작 시각이 역행하지 않도록 정리
+    fixed: List[Tuple[float, float]] = []
+    for s, e in result:
+        if fixed and s < fixed[-1][0]:
+            s = fixed[-1][0]
+        fixed.append((s, max(e, s)))
+    return fixed
+
+
+def build_karaoke_blocks(
+    narration: str,
+    word_timings: list,
+    scene_start: float,
+    scene_end: float,
+    font: "ImageFont.FreeTypeFont",
+    max_width: int,
+    max_lines: int = 2,
+    time_shift: float = 0.0,
+) -> List[Tuple[float, float, str]]:
+    """
+    단어 단위 하이라이트(ASS \\kf)가 들어간 자막 블록 (start, end, text)들을 만듭니다.
+    블록 분할은 build_caption_chunks와 동일(문장부호/어미 기준 구 + 실측 픽셀 폭 줄바꿈, 최대 2줄).
+    time_shift는 씬 전환 겹침 보정용(초)으로, 모든 시각에서 차감됩니다.
+    """
+    words_all = narration.split()
+    times = align_word_times(words_all, word_timings, scene_start, scene_end)
+    if not words_all:
+        return []
+
+    # 블록 -> (줄 리스트, 어절 인덱스 범위)
+    blocks: List[List[List[str]]] = []
+    for clause in split_into_clauses(narration):
+        wrapped = wrap_by_pixel_width(clause, font, max_width)
+        for i in range(0, len(wrapped), max_lines):
+            blocks.append([line.split() for line in wrapped[i:i + max_lines]])
+
+    out: List[Tuple[float, float, str]] = []
+    wi = 0
+    for bi, lines in enumerate(blocks):
+        block_words = sum(len(l) for l in lines)
+        if block_words == 0:
+            continue
+        idxs = list(range(wi, wi + block_words))
+        wi += block_words
+
+        b_start = times[idxs[0]][0]
+        next_start = times[wi][0] if wi < len(times) else scene_end
+        b_end = max(next_start, times[idxs[-1]][1])
+
+        parts: List[str] = []
+        k = 0
+        for li, line in enumerate(lines):
+            tokens = []
+            for w in line:
+                s = times[idxs[k]][0]
+                nxt = times[idxs[k + 1]][0] if k + 1 < len(idxs) else b_end
+                cs = max(int(round((nxt - s) * 100)), 1)
+                tokens.append("{\\kf" + str(cs) + "}" + w)
+                k += 1
+            parts.append(" ".join(tokens))
+        out.append((max(b_start - time_shift, 0.0), max(b_end - time_shift, 0.0), "\\N".join(parts)))
+
+    # 블록이 겹치거나 비는 부분 정리: 각 블록은 다음 블록 시작까지 유지
+    for i in range(len(out) - 1):
+        s, e, t = out[i]
+        out[i] = (s, max(min(e, out[i + 1][0]), s + 0.05), t)
+    return out
+
+
 def build_caption_chunks(
     narration: str,
     start_time: float,

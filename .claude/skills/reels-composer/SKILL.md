@@ -96,3 +96,27 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
   `assets/audio/timing_info.json` + `assets/images/scene_*.jpg`를 재사용해
   `pipeline.composer.compose_reels_video()`를 직접 호출하면 Gemini/TTS/이미지 생성 API를
   다시 호출하지 않아도 되어 빠르다.
+
+## 7. 단어 단위 자막 / BGM / 커버 / 캐러셀 (추가 스펙)
+
+- **자막은 단어 단위 카라오케(ASS kf 태그)**: `text_utils.build_karaoke_blocks`가 TTS `word_timings`를 어절에
+  `align_word_times`로 정렬한다(글자 누적 위치 기반, 실패 시 글자 수 비례). 읽는 단어가 골드(Primary
+  `&H0040BBFF`)로 채워지고 아직 안 읽은 단어는 흰색(Secondary). 블록 분할 규칙(구 단위 + 실측 폭 + 최대 2줄)은 그대로.
+  - TTS 타이밍: Edge-TTS는 `boundary="WordBoundary"` 필수(7.x 기본은 문장 단위), Google TTS는 단어별 SSML
+    `<mark>` + v1beta1 time pointing으로 실측(실패 시 균등 분할 폴백).
+  - **디졸브 보정**: 씬 전환 xfade/acrossfade가 타임라인을 (씬 수-1)*0.28초 줄이므로 씬 k의 자막은 `k*TRANSITION_DUR`만큼
+    앞당긴다(`generate_subtitles(transition_shift=...)`). 하드컷 폴백이면 0.
+- **BGM**: `pipeline/bgm.py`가 `assets/bgm/<mood>/`에서 시리즈별 트랙을 고르고(영상 제목 seed로 고정),
+  `composer`의 최종 인코딩에서 sidechaincompress로 나레이션 구간에 자동 덕킹 후 amix. 실패하면 BGM 없이 재인코딩.
+  볼륨 `BGM_VOLUME`(기본 0.18). 음원이 없으면 BGM 생략.
+- **커버**: `pipeline/cover.py`가 합성 전 16:9 원본(`scene_01_raw.jpg`, `generate_scene_images`가 보존)으로 1080x1920 커버를
+  만든다. 제목은 프로필 그리드 3:4 크롭 안전 영역(y 240~1680) 안에 배치. Cloudinary에 올려 Reels API `cover_url`로 전달.
+  `compose_reels_frame()` 레이아웃과는 별개.
+- **이미지 비율**: 릴스 visual_prompt는 반드시 16:9 가로(landscape). 세로 구도를 요청하지 말 것.
+- **캐러셀**: `carousel_gen.py`(대본) + `carousel_composer.py`(1080x1350 렌더, 릴스용 compose_reels_frame과 별개) +
+  `insta_publisher.publish_carousel_to_instagram`. 호스팅은 Cloudinary 전용(`media_host.py`).
+- **Insights 루프**: `pipeline/insights.py`가 게시물 메타를 `state.db`(published_posts)에 기록하고 24h/72h/7d 성과를
+  수집. 성과 상위 게시물은 기획안/캐러셀 프롬프트의 '참고 예시'로만 쓰이며(도메인 선택은 계속 무작위),
+  집계 게시물이 `INSIGHTS_MIN_POSTS`(기본 5) 미만이면 예시를 쓰지 않는다.
+- **사용자 지정 주제**: 텔레그램 `/topic 주제` 또는 기획안 메시지의 '직접 주제 입력' 버튼 →
+  `topic_crawler.classify_custom_topic`이 MBTI/TAROT/SHINJEOM/JAMIDOSU/SAJU로 분류(운세 도메인 제약 유지).

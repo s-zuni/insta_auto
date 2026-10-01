@@ -79,6 +79,39 @@ def get_audio_duration(file_path: str) -> float:
         return float(res.stdout.strip())
 
 
+def _synthesize_with_marks(words: List[str], voice_name: str, speaking_rate: float, out_path: Path) -> Optional[List[float]]:
+    """
+    단어별 <mark>가 들어간 SSML로 합성해 out_path에 저장하고, 각 단어 시작 시각(초) 리스트를 반환합니다.
+    실패하거나 마크 수가 맞지 않으면 None (호출부가 균등 분할로 대체).
+    """
+    if not words:
+        return None
+    try:
+        from xml.sax.saxutils import escape
+        from google.cloud import texttospeech_v1beta1 as tts
+
+        ssml = "<speak>" + " ".join(f'<mark name="w{i}"/>{escape(w)}' for i, w in enumerate(words)) + "</speak>"
+        client = tts.TextToSpeechClient()
+        response = client.synthesize_speech(
+            request=tts.SynthesizeSpeechRequest(
+                input=tts.SynthesisInput(ssml=ssml),
+                voice=tts.VoiceSelectionParams(language_code="ko-KR", name=voice_name),
+                audio_config=tts.AudioConfig(audio_encoding=tts.AudioEncoding.MP3, speaking_rate=speaking_rate),
+                enable_time_pointing=[tts.SynthesizeSpeechRequest.TimepointType.SSML_MARK],
+            )
+        )
+        points = {tp.mark_name: tp.time_seconds for tp in response.timepoints}
+        if len(points) != len(words):
+            return None
+        starts = [float(points[f"w{i}"]) for i in range(len(words))]
+        with open(out_path, "wb") as f:
+            f.write(response.audio_content)
+        return starts
+    except Exception as e:
+        print(f"  [WARN] Google TTS 단어 마크 합성 실패 ({e}). 균등 분할 타이밍으로 대체합니다.")
+        return None
+
+
 def synthesize_with_google_tts(
     scenes: list,
     output_dir: Path,
@@ -114,31 +147,38 @@ def synthesize_with_google_tts(
         scene_filename = f"scene_{scene_id:02d}.mp3"
         scene_path = output_dir / scene_filename
 
-        # SSML 생성 (단어/구간 마커 포함 가능)
-        synthesis_input = texttospeech.SynthesisInput(text=narration)
-
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
-        )
-
-        with open(scene_path, "wb") as out:
-            out.write(response.audio_content)
+        # 단어마다 SSML <mark>를 심고 v1beta1 time pointing으로 실측 시각을 받는다
+        words = narration.split()
+        marks = _synthesize_with_marks(words, voice_name, speaking_rate, scene_path)
+        if marks is None:
+            synthesis_input = texttospeech.SynthesisInput(text=narration)
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            with open(scene_path, "wb") as out:
+                out.write(response.audio_content)
 
         duration = get_audio_duration(str(scene_path))
         start_time = current_time_offset
         end_time = current_time_offset + duration
 
-        # 간단한 단어 분할 비례 타이밍 추정
-        words = narration.split()
         word_timings = []
         if words:
-            word_dur = duration / len(words)
-            for idx, w in enumerate(words):
-                w_start = start_time + (idx * word_dur)
-                w_end = w_start + word_dur
-                word_timings.append(WordTiming(word=w, start_time=round(w_start, 2), end_time=round(w_end, 2)))
+            if marks is not None:
+                # mark i = i번째 단어 시작 시각, 단어 끝 = 다음 단어 시작(마지막은 씬 끝)
+                for idx, w in enumerate(words):
+                    w_start = start_time + marks[idx]
+                    w_end = start_time + (marks[idx + 1] if idx + 1 < len(words) else duration)
+                    word_timings.append(WordTiming(word=w, start_time=round(w_start, 3), end_time=round(w_end, 3)))
+            else:
+                # 마크 합성 실패 시 균등 분할 추정으로 대체
+                word_dur = duration / len(words)
+                for idx, w in enumerate(words):
+                    w_start = start_time + (idx * word_dur)
+                    w_end = w_start + word_dur
+                    word_timings.append(WordTiming(word=w, start_time=round(w_start, 3), end_time=round(w_end, 3)))
 
         scene_results.append(
             SceneAudioResult(
@@ -178,7 +218,8 @@ async def _synthesize_edge_tts_scene(narration: str, output_path: Path, voice: s
     """
     import edge_tts
 
-    communicate = edge_tts.Communicate(narration, voice=voice, rate="+5%")
+    # edge-tts 7.x 기본값은 SentenceBoundary(문장 단위)이므로 단어 단위 자막을 위해 WordBoundary를 명시
+    communicate = edge_tts.Communicate(narration, voice=voice, rate="+5%", boundary="WordBoundary")
     word_timings: List[WordTiming] = []
 
     with open(output_path, "wb") as file:

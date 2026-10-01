@@ -30,7 +30,11 @@ from pipeline.tts_engine import generate_speech, FullAudioResult
 from pipeline.visual_gen import generate_scene_images
 from pipeline.composer import compose_reels_video
 from pipeline.gdrive_uploader import upload_reels_assets_to_drive
-from pipeline.insta_publisher import publish_reel_to_instagram
+from pipeline.insta_publisher import publish_reel_to_instagram, publish_carousel_to_instagram
+from pipeline import media_host
+from pipeline.bgm import pick_bgm
+from pipeline.cover import build_reel_cover
+from pipeline.insights import record_post
 from pipeline.youtube_publisher import upload_shorts_to_youtube
 
 
@@ -68,8 +72,12 @@ def run_pipeline(
             ctx = {}
             if series == "MBTI":
                 ctx = {"mbti": mbti}
+                if topic:
+                    ctx["topic"] = topic
             elif series in ("DAILY", "ELEMENT"):
                 ctx = {"element": element}
+                if topic:
+                    ctx["topic"] = topic
             elif series in ("LOVE", "CAREER", "SAJU", "SHINJEOM", "JAMIDOSU", "TAROT"):
                 ctx = {"topic": topic or f"{series} 운세"}
             if trend_hint:
@@ -103,19 +111,41 @@ def run_pipeline(
     # 4. 영상 합성
     print("\n[4/7] 🎬 Ken Burns + 자막 하드코딩 영상 합성 중...")
     t0 = time.time()
+    bgm_path = pick_bgm(series, seed=script.title)
+    if bgm_path:
+        print(f"  🎵 BGM 선택: {bgm_path.name}")
+    else:
+        print("  ℹ️ assets/bgm/ 에 음원이 없어 BGM 없이 진행합니다.")
     final_video = compose_reels_video(
         image_paths=image_paths,
         scene_results=audio_result.scene_results,
-        output_video_path=output_path
+        output_video_path=output_path,
+        bgm_path=bgm_path,
     )
     print(f"  ✅ 영상 렌더링 완료 ({time.time() - t0:.1f}초)")
+
+    # 프로필 그리드/릴스 커버용 프레임 (합성 전 16:9 원본 기반)
+    cover_path = None
+    try:
+        raw_first = Path(image_paths[0]).with_name("scene_01_raw.jpg") if image_paths else None
+        cover_path = build_reel_cover(raw_first, script.title, Path(output_path).parent / "cover.jpg")
+    except Exception as e:
+        print(f"  ⚠️ 커버 프레임 생성 실패(무시): {e}")
 
     # 캡션 저장
     caption_path = Path("assets/output/caption.txt")
     caption_path.parent.mkdir(parents=True, exist_ok=True)
     caption_path.write_text(script.instagram_caption, encoding="utf-8")
 
-    # 5. Google Drive 업로드
+    # AI 이미지 생성이 실패해 단색 플레이스홀더가 섞인 영상은 자동 게시하지 않습니다.
+    # (강제로 게시하려면 ALLOW_PLACEHOLDER_PUBLISH=true)
+    block_publish = visual_result.placeholder_count > 0 and not _env_flag("ALLOW_PLACEHOLDER_PUBLISH")
+    if block_publish and (publish_insta or publish_youtube):
+        print(f"\n⛔ 플레이스홀더 씬 {visual_result.placeholder_count}개 감지 -> Instagram/YouTube 자동 게시를 건너뜁니다.")
+        publish_insta = False
+        publish_youtube = False
+
+    # 5. Google Drive 업로드 (보관용)
     drive_result = {}
     if upload_gdrive:
         print("\n[5/7] ☁️ Google Drive 업로드 중...")
@@ -134,23 +164,36 @@ def run_pipeline(
     if publish_insta:
         print("\n[6/7] 📸 Instagram 릴스 게시 시도...")
         t0 = time.time()
-        video_direct_url = ""
-        if isinstance(drive_result, dict) and "video" in drive_result:
-            video_direct_url = drive_result["video"].get("direct_url", "")
+        host_res = media_host.upload_public(final_video, kind="video", folder="reels")
+        video_direct_url = host_res.get("url", "")
+
+        cover_url = None
+        if video_direct_url and cover_path:
+            cover_res = media_host.upload_public(cover_path, kind="image", folder="reels_cover")
+            cover_url = cover_res.get("url")
+            if not cover_url:
+                print(f"  ⚠️ 커버 업로드 실패(커버 없이 진행): {cover_res.get('error')}")
 
         if video_direct_url:
             try:
                 insta_result = publish_reel_to_instagram(
                     video_url=video_direct_url,
-                    caption=script.instagram_caption
+                    caption=script.instagram_caption,
+                    cover_url=cover_url,
                 )
                 print(f"  ✅ Instagram 게시 단계 완료 ({time.time() - t0:.1f}초)")
+                if insta_result.get("id"):
+                    record_post(
+                        insta_result["id"], "reel", series=series, mbti=mbti if series == "MBTI" else "",
+                        topic=topic, title=script.title, hook=script.hook, trend_hint=trend_hint,
+                        permalink=insta_result.get("link", ""),
+                    )
             except Exception as e:
                 print(f"  ⚠️ Instagram 게시 실패: {e}")
                 insta_result = {"error": str(e)}
         else:
-            print("  ℹ️ 공개 비디오 다운로드 URL이 없어 Instagram 게시를 건너뜁니다.")
-            insta_result = {"skipped": True, "reason": "No public video URL from Drive"}
+            print(f"  ⚠️ 공개 비디오 URL 생성 실패로 Instagram 게시를 건너뜁니다: {host_res.get('error')}")
+            insta_result = {"error": host_res.get("error", "공개 URL 생성 실패")}
 
     # 7. YouTube Shorts 자동 게시
     youtube_result = {}
@@ -195,6 +238,109 @@ def run_pipeline(
         "youtube": youtube_result,
         "placeholder_scene_count": visual_result.placeholder_count,
         "total_scene_count": len(image_paths),
+        "publish_blocked": block_publish,
+    }
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def run_carousel_pipeline(
+    topic: str = "",
+    series: str = "MBTI",
+    mbti: str = "ENFP",
+    element: str = "목(木)",
+    trend_hint: str = "",
+    mock_images: bool = False,
+    publish_insta: bool = True,
+    output_dir: str = "assets/output/carousel",
+) -> dict:
+    """인스타그램 캐러셀(1080x1350, 5~8장) 대본 -> 표지 이미지 -> 슬라이드 렌더 -> 호스팅 -> 게시."""
+    from pipeline.carousel_gen import generate_carousel_script
+    from pipeline.carousel_composer import render_carousel
+    from pipeline.visual_gen import (
+        generate_with_gemini_nanobanana, generate_with_pollinations_flux,
+    )
+
+    start = time.time()
+    print("\n" + "=" * 65)
+    print(f"🖼️ 캐러셀 자동 생성 파이프라인 시작 | 시리즈: {series} | {topic or mbti or element}")
+    print("=" * 65)
+
+    ctx = {}
+    if series == "MBTI":
+        ctx = {"mbti": mbti}
+        if topic:
+            ctx["topic"] = topic
+    elif series in ("DAILY", "ELEMENT"):
+        ctx = {"element": element}
+        if topic:
+            ctx["topic"] = topic
+    else:
+        ctx = {"topic": topic or f"{series} 운세"}
+    if trend_hint:
+        ctx["trend_hint"] = trend_hint
+
+    print("\n[1/4] 🧠 캐러셀 대본 기획 중 (Gemini)...")
+    script = generate_carousel_script(series=series, context=ctx)
+    print(f"  ✅ {script.title} | 슬라이드 {len(script.slides)}장")
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("\n[2/4] 🎨 표지 비주얼 생성 중 (16:9 -> 4:5 중앙 크롭)...")
+    cover_path = out_dir / "cover_source.jpg"
+    cover_ok = False
+    if not mock_images:
+        cover_ok = generate_with_gemini_nanobanana(script.cover_visual_prompt, cover_path)             or generate_with_pollinations_flux(script.cover_visual_prompt, cover_path)
+    if not cover_ok:
+        print("  ⚠️ 표지 이미지 생성 실패/건너뜀 -> 그라디언트 표지 사용")
+
+    print("\n[3/4] 🖌️ 슬라이드 렌더링 중...")
+    slide_paths = render_carousel(script, out_dir, cover_image=cover_path if cover_ok else None)
+
+    caption_path = out_dir / "caption.txt"
+    caption_path.write_text(script.instagram_caption, encoding="utf-8")
+
+    insta_result = {}
+    if publish_insta:
+        if not cover_ok and not mock_images and not _env_flag("ALLOW_PLACEHOLDER_PUBLISH"):
+            print("\n⛔ 표지 이미지 생성 실패 -> 인스타 자동 게시를 건너뜁니다.")
+            insta_result = {"skipped": True, "reason": "cover image generation failed"}
+        else:
+            print("\n[4/4] 📸 슬라이드 호스팅 및 Instagram 캐러셀 게시...")
+            urls = []
+            for sp in slide_paths:
+                up = media_host.upload_public(sp, kind="image", folder="carousel")
+                if not up.get("url"):
+                    insta_result = {"error": f"슬라이드 업로드 실패: {up.get('error')}"}
+                    break
+                urls.append(up["url"])
+            if not insta_result:
+                try:
+                    insta_result = publish_carousel_to_instagram(urls, script.instagram_caption)
+                    if insta_result.get("id"):
+                        record_post(
+                            insta_result["id"], "carousel", series=series, mbti=mbti if series == "MBTI" else "",
+                            topic=topic, title=script.title, hook=script.slides[0].headline,
+                            trend_hint=trend_hint, permalink=insta_result.get("link", ""),
+                        )
+                except Exception as e:
+                    insta_result = {"error": str(e)}
+
+    print("\n" + "=" * 65)
+    print(f"🎉 캐러셀 파이프라인 완료! (총 {time.time() - start:.1f}초) | 슬라이드 {len(slide_paths)}장")
+    if insta_result.get("link"):
+        print(f"📸 Instagram 캐러셀 링크: {insta_result['link']}")
+    print("=" * 65)
+
+    return {
+        "slide_paths": slide_paths,
+        "script": script.model_dump(),
+        "caption": script.instagram_caption,
+        "instagram": insta_result,
+        "cover_generated": cover_ok,
     }
 
 
@@ -226,8 +372,18 @@ def main():
                         help="YouTube Shorts 업로드 건너뛰기")
     parser.add_argument("--output", type=str, default="assets/output/final_reel.mp4",
                         help="출력 영상 파일 경로")
+    parser.add_argument("--format", type=str, default="reel", choices=["reel", "carousel"],
+                        help="콘텐츠 포맷 (reel: 릴스/숏츠, carousel: 인스타 캐러셀)")
 
     args = parser.parse_args()
+
+    if args.format == "carousel":
+        run_carousel_pipeline(
+            topic=args.topic, series=args.series, mbti=args.mbti, element=args.element,
+            trend_hint=args.trend_hint, mock_images=args.mock_images,
+            publish_insta=not args.no_insta,
+        )
+        return
 
     run_pipeline(
         topic=args.topic,
