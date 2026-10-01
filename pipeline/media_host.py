@@ -32,7 +32,10 @@ def cloudinary_configured() -> bool:
 
 
 def _parse_cloudinary_url() -> Optional[Dict[str, str]]:
-    raw = os.getenv("CLOUDINARY_URL", "").strip()
+    raw = os.getenv("CLOUDINARY_URL", "").strip().strip("\"'")
+    # 대시보드/Railway에 'CLOUDINARY_URL=cloudinary://...' 통째로 붙여 넣는 흔한 실수 허용
+    if raw.upper().startswith("CLOUDINARY_URL="):
+        raw = raw.split("=", 1)[1].strip().strip("\"'")
     if not raw.startswith("cloudinary://"):
         return None
     u = urlparse(raw)
