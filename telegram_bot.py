@@ -452,6 +452,151 @@ def execute_both_task(plan: dict, chat_id: str | int = None):
 
 
 # ─────────────────────────────────────────────────────────────
+# 4-2. Threads 전용 텍스트 글 (릴스/캐러셀과 별개 콘텐츠)
+# ─────────────────────────────────────────────────────────────
+def _threads_token() -> str:
+    """주기 갱신으로 DB에 저장된 토큰을 우선 사용하고, 없으면 .env 값을 씁니다."""
+    return _get_setting("threads_token") or os.getenv("THREADS_ACCESS_TOKEN", "")
+
+
+def _recent_threads_posts() -> list:
+    try:
+        return json.loads(_get_setting("threads_recent") or "[]")
+    except Exception:
+        return []
+
+
+THREADS_SLOTS = {"morning": (7, 30), "afternoon": (14, 0), "evening": (18, 0)}  # KST
+THREADS_AUTO_POST = os.getenv("THREADS_AUTO_POST", "true").strip().lower() not in ("0", "false", "no")
+
+
+def _threads_cta_slot(date_str: str) -> str:
+    """하루 3개 글 중 CTA를 붙일 1개 슬롯을 그날 처음 호출될 때 무작위로 정해 고정합니다."""
+    key = f"threads_cta_slot:{date_str}"
+    slot = _get_setting(key)
+    if slot not in THREADS_SLOTS:
+        slot = random.choice(list(THREADS_SLOTS))
+        _set_setting(key, slot)
+    return slot
+
+
+def _remember_threads_post(posts: list):
+    recent = ([posts[0]] + _recent_threads_posts())[:10]
+    _set_setting("threads_recent", json.dumps(recent, ensure_ascii=False))
+
+
+def _format_thread_preview(thread) -> str:
+    parts = []
+    for i, p in enumerate(thread.posts):
+        label = "본문" if i == 0 else f"답글 {i}"
+        parts.append(f"<b>[{label}]</b>\n{html.escape(p)}")
+    return "\n\n".join(parts)
+
+
+def propose_threads_post(chat_id: str | int = None):
+    """수동 /thread: Threads 타래 초안(CTA 없음)을 생성해 텔레그램으로 보내고, 승인 버튼을 붙입니다."""
+    from pipeline.threads_content import generate_threads_thread
+
+    tg_send("🧵 <b>Threads 타래 초안을 생성 중입니다...</b> (약 20~40초)", chat_id=chat_id)
+    try:
+        thread = generate_threads_thread(recent_posts=_recent_threads_posts())
+    except Exception as e:
+        tg_send(f"❌ 초안 생성 실패: {html.escape(str(e))}", chat_id=chat_id)
+        return
+    key = f"thr{int(time.time())}"
+    _set_setting(f"thread_draft:{key}", json.dumps({"posts": thread.posts, "topic_tag": thread.topic_tag}, ensure_ascii=False))
+    markup = {"inline_keyboard": [
+        [{"text": "🧵 이대로 게시", "callback_data": f"thr_post:{key}"}],
+        [{"text": "🔄 다시 생성", "callback_data": "thr_regen"}],
+    ]}
+    tg_send(
+        f"🧵 <b>Threads 초안</b> [{thread.category}] 토픽 #{html.escape(thread.topic_tag)}\n\n{_format_thread_preview(thread)}",
+        reply_markup=markup,
+        chat_id=chat_id,
+    )
+
+
+def publish_threads_draft(key: str, chat_id: str | int = None):
+    from pipeline.threads_publisher import publish_thread
+
+    raw = _get_setting(f"thread_draft:{key}")
+    if not raw:
+        tg_send("⚠️ 초안이 만료되었거나 이미 게시되었습니다. /thread 로 다시 생성하세요.", chat_id=chat_id)
+        return
+    draft = json.loads(raw)
+    _del_setting(f"thread_draft:{key}")  # 중복 클릭으로 이중 게시되지 않도록 먼저 제거
+    result = publish_thread(draft["posts"], topic_tag=draft.get("topic_tag"), access_token=_threads_token() or None)
+    if result.get("ids"):
+        _remember_threads_post(draft["posts"])
+    if "error" in result:
+        tg_send(f"❌ <b>Threads 게시 실패</b>\n{html.escape(str(result['error']))}", chat_id=chat_id)
+        return
+    tg_send(f"✅ <b>Threads 게시 완료!</b>\n{html.escape(result.get('permalink') or result.get('id', ''))}", chat_id=chat_id)
+
+
+def threads_scheduled_job(slot: str):
+    """하루 3회(07:30/14:00/18:00 KST) Threads 타래를 생성해 게시합니다. 3개 중 1개에만 CTA 답글을 붙입니다."""
+    from pipeline.threads_content import generate_threads_thread
+    from pipeline.threads_publisher import publish_thread
+
+    date_str = datetime.datetime.now(KST).strftime("%Y-%m-%d")
+    done_key = f"threads_done:{date_str}:{slot}"
+    if _get_setting(done_key):
+        print(f"[THREADS] {date_str} {slot} 슬롯은 이미 처리되었습니다.")
+        return
+    if not (os.getenv("THREADS_USER_ID") and _threads_token()):
+        print("[THREADS][WARN] THREADS_USER_ID/THREADS_ACCESS_TOKEN 미설정 - 건너뜀")
+        return
+    _set_setting(done_key, "1")  # 재시작/중복 트리거로 이중 게시되지 않도록 시도 전에 표시
+
+    with_cta = (slot == _threads_cta_slot(date_str))
+    try:
+        thread = generate_threads_thread(slot=slot, with_cta=with_cta, recent_posts=_recent_threads_posts())
+    except Exception as e:
+        print(f"[THREADS][ERROR] 생성 실패: {e}")
+        tg_send(f"❌ Threads {slot} 글 생성 실패: {html.escape(str(e))}")
+        return
+
+    if not THREADS_AUTO_POST:
+        key = f"thr{int(time.time())}"
+        _set_setting(f"thread_draft:{key}", json.dumps({"posts": thread.posts, "topic_tag": thread.topic_tag}, ensure_ascii=False))
+        markup = {"inline_keyboard": [[{"text": "🧵 이대로 게시", "callback_data": f"thr_post:{key}"}]]}
+        tg_send(f"🧵 <b>Threads {slot} 초안</b> [{thread.category}]\n\n{_format_thread_preview(thread)}", reply_markup=markup)
+        return
+
+    result = publish_thread(thread.posts, topic_tag=thread.topic_tag, access_token=_threads_token() or None)
+    if result.get("ids"):
+        _remember_threads_post(thread.posts)
+    if "error" in result:
+        tg_send(f"❌ <b>Threads {slot} 게시 실패</b>\n{html.escape(str(result['error']))}")
+        return
+    cta_note = " · CTA 포함" if thread.has_cta else ""
+    tg_send(
+        f"✅ <b>Threads {slot} 게시 완료</b> [{thread.category}{cta_note}]\n"
+        f"{html.escape(result.get('permalink') or result.get('id', ''))}"
+    )
+
+
+def refresh_threads_token_job():
+    """Threads 장기 토큰(60일)을 주기적으로 연장해 DB에 저장합니다."""
+    from pipeline.threads_publisher import refresh_long_lived_token
+
+    token = _threads_token()
+    if not token:
+        return
+    out = refresh_long_lived_token(token)
+    if "access_token" in out:
+        _set_setting("threads_token", out["access_token"])
+        print("[THREADS] 토큰 갱신 완료")
+    else:
+        print(f"[THREADS][WARN] 토큰 갱신 실패: {out.get('error')}")
+        try:
+            tg_send(f"⚠️ Threads 토큰 갱신 실패: {html.escape(str(out.get('error')))}\n만료 전에 토큰을 재발급해 주세요.")
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────
 # 5. 콜백 처리
 # ─────────────────────────────────────────────────────────────
 def begin_custom_topic(chat_id: str | int):
@@ -499,6 +644,14 @@ def handle_callback(cq: dict, chat_id: str | int = None):
 
     if data == "custom_topic":
         begin_custom_topic(chat_id)
+        return
+
+    if data == "thr_regen":
+        propose_threads_post(chat_id=chat_id)
+        return
+
+    if data.startswith("thr_post:"):
+        publish_threads_draft(data[len("thr_post:"):], chat_id=chat_id)
         return
 
     as_carousel = data.startswith("car:")
@@ -553,6 +706,22 @@ def start_scheduler():
             _collect_insights_job,
             CronTrigger(minute=10, timezone=KST),
             id="collect_insights",
+            replace_existing=True
+        )
+        for _slot, (_h, _m) in THREADS_SLOTS.items():
+            scheduler.add_job(
+                threads_scheduled_job,
+                CronTrigger(hour=_h, minute=_m, timezone=KST),
+                args=[_slot],
+                id=f"threads_post_{_slot}",
+                replace_existing=True,
+                misfire_grace_time=900,
+                coalesce=True,
+            )
+        scheduler.add_job(
+            refresh_threads_token_job,
+            CronTrigger(day_of_week="mon", hour=4, minute=0, timezone=KST),
+            id="refresh_threads_token",
             replace_existing=True
         )
         scheduler.start()
@@ -619,6 +788,7 @@ def run_bot():
                             "🔮 <b>MBTI×사주 릴스 자동화 봇</b>\n\n"
                             "/generate — 기획안 A/B안 즉시 생성\n"
                             "/topic 주제 — 직접 주제 지정 (릴스/캐러셀 선택)\n"
+                            "/thread — Threads 타래 초안 수동 생성 (승인 후 게시)\n"
                             "/insights — 성과 리포트\n"
                             "/status — 현재 시스템 상태 확인",
                             chat_id=sender_chat
@@ -636,6 +806,9 @@ def run_bot():
                             handle_custom_topic_text(arg_text, sender_chat)
                         else:
                             begin_custom_topic(sender_chat)
+
+                    elif txt.startswith("/thread"):
+                        propose_threads_post(chat_id=sender_chat)
 
                     elif txt.startswith("/cancel"):
                         _del_setting(f"await_topic:{sender_chat}")
