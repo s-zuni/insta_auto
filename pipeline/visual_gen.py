@@ -57,9 +57,10 @@ def compose_reels_frame(
 
         CANVAS_W, CANVAS_H = 1080, 1920
         IMG_H = 608  # 1080 * 9 / 16 (반올림)
-        ACCENT = (255, 187, 64)
         BG_TOP = (17, 18, 28)
         BG_BOTTOM = (8, 8, 13)
+        TITLE_FONT_SIZE = 128
+        TITLE_Y = 265
 
         raw_img = Image.open(image_path).convert("RGB")
         img_16_9 = raw_img.resize((CANVAS_W, IMG_H), Image.Resampling.LANCZOS)
@@ -74,51 +75,48 @@ def compose_reels_frame(
             b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * ratio)
             draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
 
-        # 2. 폰트 준비
+        # 2. 폰트 준비 (제목: Pretendard Bold 128px)
         font_path = PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf"
         if not font_path.is_file():
             font_path = PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
         font_file = str(font_path) if font_path.is_file() else None
-        try:
-            tag_font = ImageFont.truetype(font_file, 30) if font_file else ImageFont.load_default()
-            title_font = ImageFont.truetype(font_file, 56) if font_file else ImageFont.load_default()
-        except Exception:
-            tag_font = ImageFont.load_default()
-            title_font = ImageFont.load_default()
 
-        # 3. 제목을 실제 렌더 폭(픽셀) 기준으로 줄바꿈 (최대 3줄, 카드 박스 없이 배경에 직접 배치)
-        clean_title = title.replace("\n", " ").strip()
-        max_title_width = CANVAS_W - 180
-        lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
-        if len(lines) > 3:
-            lines = lines[:3]
+        def _load(size: int):
+            try:
+                return ImageFont.truetype(font_file, size) if font_file else ImageFont.load_default()
+            except Exception:
+                return ImageFont.load_default()
+
+        # 3. 제목 줄바꿈: 128px 기준 최대 2줄(이미지 영역 침범 방지). 넘치면 폰트를 줄여가며 2줄에 맞춘다.
+        clean_title = title.replace(chr(10), " ").strip()
+        max_title_width = CANVAS_W - 80
+        title_size = TITLE_FONT_SIZE
+        while True:
+            title_font = _load(title_size)
+            lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
+            if len(lines) <= 2 or title_size <= 88:
+                break
+            title_size -= 8
+        if len(lines) > 2:
+            lines = lines[:2]
             lines[-1] = lines[-1].rstrip() + "…"
 
-        # 4. 제목 줄 수에 맞춰 헤더 높이를 동적으로 계산 (고정 카드 박스 대신 콘텐츠 기반 여백)
-        top_pad, tag_h, gap, line_h, bottom_pad = 96, 46, 34, 70, 80
-        header_h = top_pad + tag_h + gap + (line_h * len(lines)) + bottom_pad
-        header_h = max(380, min(header_h, 620))
-
-        # 5. 카테고리 태그 (박스/테두리 없이 텍스트만 배치)
-        tag_text = f"[ {category_tag} ]"
-        draw.text((CANVAS_W // 2, top_pad + tag_h // 2), tag_text, font=tag_font, fill=ACCENT, anchor="mm")
-
-        # 6. 제목 라인 (중앙 정렬, 굵은 흰색)
-        title_start_y = top_pad + tag_h + gap + line_h // 2
+        # 4. 제목: X=0 기준 가운데 정렬, 상단 Y=265, 볼드 + 외곽선
+        line_h = int(title_size * 1.2)
         for idx, line in enumerate(lines):
-            y_pos = title_start_y + idx * line_h
-            draw.text((CANVAS_W // 2, y_pos), line, font=title_font, fill=(255, 255, 255), anchor="mm")
+            draw.text(
+                (CANVAS_W // 2, TITLE_Y + idx * line_h), line, font=title_font,
+                fill=(255, 255, 255), anchor="mt",
+                stroke_width=8, stroke_fill=(0, 0, 0),
+            )
 
-        # 7. 중앙 16:9 비주얼 배치 + 골드 액센트 라인
-        img_y0 = header_h
-        img_y1 = header_h + IMG_H
+        # 5. 이미지: 캔버스 세로 가운데 배치
+        img_y0 = (CANVAS_H - IMG_H) // 2
         bg.paste(img_16_9, (0, img_y0))
-        draw.line([(0, img_y0), (CANVAS_W, img_y0)], fill=ACCENT, width=3)
-        draw.line([(0, img_y1), (CANVAS_W, img_y1)], fill=ACCENT, width=3)
 
         # Save Final Composite Frame
         bg.save(image_path, "JPEG", quality=95)
-        print(f"  [FRAME] 상단 고정 주제 + 중앙 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
+        print(f"  [FRAME] 제목(Y265) + 중앙 16:9 비주얼 릴스 프레임 합성 완료 -> {image_path.name}")
     except Exception as e:
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 

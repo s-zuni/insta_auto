@@ -108,7 +108,7 @@ def upload_shorts_to_youtube(
             shorts_desc = f"{description}\n\n#Shorts #MBTI #사주 #운세"
 
         if not tags:
-            tags = ["Shorts", "MBTI", "사주", "운세", "오늘의운세", "병오년"]
+            tags = ["Shorts", "MBTI", "사주", "운세", "병오년"]
 
         body = {
             "snippet": {

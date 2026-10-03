@@ -1,7 +1,7 @@
 """
 캐러셀 슬라이드 렌더러 (PIL). 1080x1350 (4:5) JPEG 슬라이드를 만듭니다.
 
-- 표지: 16:9로 생성한 비주얼을 4:5로 중앙 크롭 + 어두운 오버레이 위에 훅 헤드라인
+- 표지: Figma MJ_1 디자인(풀블리드 이미지 + 검정 그라디언트 + MBTIJU 브랜드/헤드라인/슬로건)
 - 본문: 릴스와 동일한 다크 그라디언트(#111121 -> #08080d) + accent(#FFBB40) 톤, 카드 박스 없이 배경에 직접 텍스트
 - 마지막: CTA 슬라이드
 
@@ -92,29 +92,91 @@ def _cover_crop(image_path: Path) -> Image.Image:
     return img.crop((left, 0, left + W, H))
 
 
+def _weight_font(weight: str, size: int) -> ImageFont.FreeTypeFont:
+    """Pretendard 웨이트별 폰트(Black/SemiBold). 파일이 없으면 Bold 계열로 대체."""
+    p = FONT_DIR / f"Pretendard-{weight}.otf"
+    try:
+        return ImageFont.truetype(str(p), size) if p.is_file() else _font(size)
+    except Exception:
+        return _font(size)
+
+
+def _tracked_width(text: str, font: ImageFont.FreeTypeFont, spacing: float) -> float:
+    return sum(font.getlength(ch) + spacing for ch in text) - spacing if text else 0.0
+
+
+def _draw_tracked(d: ImageDraw.ImageDraw, x: float, center_y: float, text: str, font, fill, spacing: float,
+                  align: str = "left") -> None:
+    """자간(letter-spacing, px)을 적용해 글자 단위로 그립니다. center_y는 줄 상자의 세로 중심."""
+    asc, desc = font.getmetrics()
+    baseline = center_y + (asc - desc) / 2
+    if align == "right":
+        x -= _tracked_width(text, font, spacing)
+    for ch in text:
+        d.text((x, baseline), ch, font=font, fill=fill, anchor="ls")
+        x += font.getlength(ch) + spacing
+
+
+def _wrap_tracked(text: str, font, max_w: int, spacing: float) -> List[str]:
+    """공백 기준 단어 단위로 자간 포함 폭을 재서 줄바꿈(한 단어가 폭을 넘으면 글자 단위로 분할)."""
+    lines: List[str] = []
+    for para in text.replace("\r", "").split("\n"):
+        cur = ""
+        for word in para.split():
+            cand = f"{cur} {word}".strip()
+            if _tracked_width(cand, font, spacing) <= max_w:
+                cur = cand
+                continue
+            if cur:
+                lines.append(cur)
+            cur = ""
+            for ch in word:
+                if cur and _tracked_width(cur + ch, font, spacing) > max_w:
+                    lines.append(cur)
+                    cur = ch
+                else:
+                    cur += ch
+        if cur:
+            lines.append(cur)
+    return lines
+
+
+# Figma "MJ_1" (node 292:180) 표지 스펙. 1080x1350, 모든 자간은 폰트 크기의 -5%.
+COVER_BRAND = "MBTIJU"
+COVER_SLOGAN = "MBTIJU: MBTI와 사주가 만나다."
+
+
 def render_cover(headline: str, tag: str, cover_image: Optional[Path], out_path: Path, total: int) -> None:
-    if cover_image and cover_image.is_file():
-        img = _cover_crop(cover_image)
-        # 아래로 갈수록 어두워지는 오버레이로 흰 글씨 가독성 확보
-        overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        od = ImageDraw.Draw(overlay)
-        for y in range(H):
-            alpha = int(90 + 140 * (y / H))
-            od.line([(0, y), (W, y)], fill=(8, 8, 13, min(alpha, 235)))
-        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    else:
-        img = _gradient_bg()
+    """Figma MJ_1 디자인: 풀블리드 이미지 + 위→아래 검정 그라디언트(0→100%) + 브랜드/헤드라인/슬로건."""
+    img = _cover_crop(cover_image) if cover_image and cover_image.is_file() else Image.new("RGB", (W, H), (60, 60, 70))
 
+    # Rectangle 1: 세로 선형 그라디언트, 투명 -> 불투명 검정
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    for y in range(H):
+        od.line([(0, y), (W, y)], fill=(0, 0, 0, int(255 * y / (H - 1))))
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     d = ImageDraw.Draw(img)
-    d.text((W // 2, 120), f"[ {tag} ]", font=_font(34), fill=ACCENT, anchor="mm")
 
-    font, lines, line_h = _fit_lines(headline, W - MARGIN_X * 2, 520, start=104, min_size=64, line_ratio=1.28)
-    block_h = len(lines) * line_h
-    y = (H - block_h) // 2 + 60
-    _draw_lines(d, lines, font, MARGIN_X, y, line_h, WHITE, center_x=W // 2)
+    # 우상단 슬로건: Black 26px, 오른쪽 끝 x=1023, 줄 상자 top 60 / 높이 86
+    _draw_tracked(d, 1023, 60 + 43, COVER_SLOGAN, _weight_font("Black", 26), WHITE, -1.3, align="right")
 
-    d.line([(W // 2 - 60, y - 40), (W // 2 + 60, y - 40)], fill=ACCENT, width=5)
-    d.text((W // 2, H - 110), "넘겨서 확인하기  →", font=_font(36), fill=ACCENT, anchor="mm")
+    # 브랜드: Black 48px, left 74, top 786 / 줄 높이 86
+    _draw_tracked(d, 74, 786 + 43, COVER_BRAND, _weight_font("Black", 48), WHITE, -2.4)
+
+    # 헤드라인: SemiBold 68px, left 60, top 850, 폭 996, 줄 높이 150, 자간 -3.4. 3줄을 넘으면 비례 축소
+    size = 68
+    while True:
+        f_head = _weight_font("SemiBold", size)
+        spacing = -size * 0.05
+        lines = _wrap_tracked(headline, f_head, 996, spacing)
+        if len(lines) <= 3 or size <= 52:
+            break
+        size -= 4
+    line_h = 150 * size / 68
+    for i, line in enumerate(lines[:3]):
+        _draw_tracked(d, 60, 850 + line_h * i + line_h / 2, line, f_head, WHITE, spacing)
+
     img.save(out_path, "JPEG", quality=95)
 
 

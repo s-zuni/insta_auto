@@ -39,6 +39,13 @@ REELS_PERSONA = """[릴스 대본 작가 페르소나]
 초반 3초 후킹, 팩트 중심 날카로운 어조, 사주 명리학 + MBTI 심리 역동 융합,
 MZ 언어, 행동 유도(저장/팔로우/댓글) CTA로 마무리. 전체 분량 30~50초(씬 4~6개).
 
+[주제/구성 규칙 - 필수]
+- '오늘의 운세'식 일일 운세 주제는 금지. 순위(랭킹)와 특성을 적극 활용한 주제로 작성합니다.
+  (예: "슬프면 무조건 눈물 흘리는 MBTI 1위", "올해 남은 3개월 잘되는 사주 특성",
+   "잘 어울리는 MBTI 궁합", "잘 어울리는 사주&MBTI 조합 1위")
+- 제목(title)은 공백 포함 16자 이내로 짧고 굵게(화면에 큰 글씨로 2줄까지만 표시됨).
+- 톤은 재밌고 능청스럽게, 친구에게 수다 떨듯 리듬감 있게 작성합니다.
+
 [narration 작성 규칙 - 필수]
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. 오직 순수 한글(및 필요시 숫자)만 사용합니다.
   (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)"""
@@ -53,16 +60,16 @@ def build_series_prompt(series: str, context: dict) -> str:
     if series == "MBTI":
         mbti = context.get("mbti", "INFP")
         nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("","",""))
-        base = f"{REELS_PERSONA}\n\n[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n후킹으로 시작 → 사주 오행/십신 진단 → MBTI 심리 교차 분석 → 솔루션 → CTA\n해시태그: #{mbti} #사주 #운세 #MBTI궁합 #오늘의운세 #병오년 #릴스"
+        base = f"{REELS_PERSONA}\n\n[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n후킹으로 시작 → 사주 오행/십신 진단 → MBTI 심리 교차 분석 → 솔루션 → CTA\n해시태그: #{mbti} #사주 #운세 #MBTI궁합 #병오년 #릴스"
     elif series == "DAILY":
         el = context.get("element", "목(木)")
         el_display = el.split("(")[0]  # 한자 표기는 모델 프롬프트에서 제외해 narration에 새어들어가는 것을 방지
         info = FIVE_ELEMENTS.get(el, {})
-        base = f"{REELS_PERSONA}\n\n[오늘의 오행 운세 시리즈: {el_display}]\n색상: {info.get('color','')} | 기운: {info.get('booster','')}\n후킹 → 오행 본질 설명 → 실생활 팁 → CTA\n해시태그: #{el_display} #오늘의운세 #사주 #병오년 #릴스"
+        base = f"{REELS_PERSONA}\n\n[오행 랭킹/특성 시리즈: {el_display}]\n색상: {info.get('color','')} | 기운: {info.get('booster','')}\n후킹 → 오행별 순위·특성 설명 → 실생활 팁 → CTA\n해시태그: #{el_display} #사주 #병오년 #릴스"
     elif series in DOMAIN_LABELS:
         label = DOMAIN_LABELS[series]
-        topic = context.get("topic", f"오늘의 {label} 운세")
-        base = f"{REELS_PERSONA}\n\n[{label} 시리즈]\n주제: {topic}\n후킹 → {label} 핵심 포인트 해석 → 현실 조언 → CTA\n해시태그: #{label} #운세 #오늘의운세 #병오년 #릴스"
+        topic = context.get("topic", f"{label} 특성 TOP 랭킹")
+        base = f"{REELS_PERSONA}\n\n[{label} 시리즈]\n주제: {topic}\n후킹 → {label} 핵심 포인트 해석 → 현실 조언 → CTA\n해시태그: #{label} #운세 #병오년 #릴스"
     else:
         base = f"{REELS_PERSONA}\n\n주제: {context.get('topic','운세 릴스')}"
 
@@ -127,5 +134,5 @@ def _fallback(series: str, context: dict) -> ReelsScript:
             Scene(scene_id=5, narration="도움이 됐다면 저장하고 팔로우해 두세요.", duration_estimate=4,
                   visual_prompt="Horizontal 16:9 landscape ratio, glowing bookmark icon above smartphone, clean modern aesthetic, no text"),
         ],
-        instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n#{mbti} #MBTI운세 #사주 #운세 #오늘의운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
+        instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n#{mbti} #MBTI운세 #사주 #운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
     )

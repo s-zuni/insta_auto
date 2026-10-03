@@ -37,9 +37,10 @@ _PRETENDARD = PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf"
 SUBTITLE_FONT_FILE = _PRETENDARD if _PRETENDARD.is_file() else PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
 SUBTITLE_FONT_NAME = "Pretendard" if _PRETENDARD.is_file() else "NanumGothic"
 
-SUBTITLE_FONT_SIZE = 62
+SUBTITLE_FONT_SIZE = 96
+SUBTITLE_Y = 1423  # 자막 박스 상단 Y 좌표(기획안)
 # PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
-SUBTITLE_MAX_WIDTH = 880
+SUBTITLE_MAX_WIDTH = 900
 
 
 def format_ass_timestamp(seconds: float) -> str:
@@ -97,7 +98,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelsSub,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H0040BBFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,5,3,2,80,80,340,1
+Style: ReelsSub,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,14,0,8,60,60,{SUBTITLE_Y},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -175,16 +176,23 @@ def render_scene_clip(
     # 이즈인아웃(사인 곡선) 진행률: 시작/끝은 느리고 중간은 빠르게 움직여 기계적인 느낌을 줄임
     ease = f"(0.5-0.5*cos(PI*n/{total_frames}))"
 
-    # 홀수 씬: 서서히 줌인 (1.0 -> 1.18)
-    # 짝수 씬: 서서히 줌아웃 (1.18 -> 1.0)
+    # 홀수 씬: 서서히 줌인 (1.0 -> 1.18), 짝수 씬: 서서히 줌아웃 (1.18 -> 1.0)
+    # 줌은 중앙 16:9 이미지 스트립에만 적용하고, 제목/배경은 고정(자막은 이후 ass 필터로 별도 하드번인).
+    # crop의 w/h는 설정 시 1회만 평가되므로 프레임별 평가(eval=frame)가 되는 scale로 확대한 뒤 중앙을 잘라낸다.
     if scene_id % 2 == 1:
-        crop_w = f"1080*(1-0.18*{ease})"
-        crop_h = f"1920*(1-0.18*{ease})"
+        zoom = f"(1+0.18*{ease})"
     else:
-        crop_w = f"1080*(0.82+0.18*{ease})"
-        crop_h = f"1920*(0.82+0.18*{ease})"
+        zoom = f"(1.18-0.18*{ease})"
 
-    filter_graph = f"crop=w='{crop_w}':h='{crop_h}':x='(in_w-out_w)/2':y='(in_h-out_h)/2',scale=1080:1920"
+    img_h = 608
+    img_y = (1920 - img_h) // 2
+    filter_graph = (
+        f"[0:v]split[base][strip];"
+        f"[strip]crop=1080:{img_h}:0:{img_y},"
+        f"scale=w='trunc(1080*{zoom}/2)*2':h='trunc({img_h}*{zoom}/2)*2':eval=frame:flags=bicubic,"
+        f"crop=1080:{img_h}:(in_w-1080)/2:(in_h-{img_h})/2[z];"
+        f"[base][z]overlay=0:{img_y}[v]"
+    )
 
     cmd = [
         ffmpeg_bin,
@@ -193,7 +201,8 @@ def render_scene_clip(
         "-t", f"{duration:.3f}",
         "-i", str(image_path),
         "-i", str(audio_path),
-        "-vf", filter_graph,
+        "-filter_complex", filter_graph,
+        "-map", "[v]", "-map", "1:a",
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-threads", "2",

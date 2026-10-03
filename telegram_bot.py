@@ -265,7 +265,7 @@ def generate_and_send_proposals(chat_id: str | int = None):
     label_b = DOMAIN_LABELS.get(series_b, series_b) + (f" {mbti_b}" if mbti_b else "")
 
     msg = (
-        f"🔮 <b>[오늘의 릴스 기획안 2가지 - 실시간 운세 트렌드 기반]</b>\n\n"
+        f"🔮 <b>[릴스·캐러셀 기획안 2가지 - 실시간 운세 트렌드 기반]</b>\n\n"
         f"───────────────────\n"
         f"📌 <b>[A안] {html.escape(label_a)}</b>\n"
         + (f"• <b>실시간 화제:</b> {html.escape(trend_a)}\n" if trend_a else "")
@@ -279,16 +279,20 @@ def generate_and_send_proposals(chat_id: str | int = None):
         f"• <b>후킹:</b> <i>{html.escape(hook_b)}</i>\n"
         f"• <b>요약:</b> {html.escape(sum_b)}\n"
         f"───────────────────\n\n"
-        f"👇 <b>원하는 안을 누르면 대본→TTS→영상→Drive→인스타 릴스까지 원스톱으로 제작 및 게시됩니다!</b>"
+        f"👇 <b>원하는 안의 🚀 버튼을 누르면 릴스(Instagram·YouTube)와 캐러셀이 연달아 자동 제작·게시됩니다!</b>"
     )
 
     markup = {
         "inline_keyboard": [
-            [{"text": f"✅ A안 — {label_a} 릴스 제작 & 게시", "callback_data": ka}],
-            [{"text": f"✅ B안 — {label_b} 릴스 제작 & 게시", "callback_data": kb}],
+            [{"text": f"🚀 A안 — {label_a} 릴스+캐러셀 한 번에 게시", "callback_data": f"both:{ka}"}],
+            [{"text": f"🚀 B안 — {label_b} 릴스+캐러셀 한 번에 게시", "callback_data": f"both:{kb}"}],
             [
-                {"text": "🖼 A안 캐러셀", "callback_data": f"car:{ka}"},
-                {"text": "🖼 B안 캐러셀", "callback_data": f"car:{kb}"},
+                {"text": "🎬 A안 릴스만", "callback_data": ka},
+                {"text": "🖼 A안 캐러셀만", "callback_data": f"car:{ka}"},
+            ],
+            [
+                {"text": "🎬 B안 릴스만", "callback_data": kb},
+                {"text": "🖼 B안 캐러셀만", "callback_data": f"car:{kb}"},
             ],
             [{"text": "✍️ 둘 다 별로예요 — 직접 주제 입력", "callback_data": "custom_topic"}],
             [{"text": "🔄 새 기획안 다시 생성", "callback_data": "regenerate"}],
@@ -301,11 +305,8 @@ def generate_and_send_proposals(chat_id: str | int = None):
 # ─────────────────────────────────────────────────────────────
 # 4. In-Process 파이프라인 실행
 # ─────────────────────────────────────────────────────────────
-def execute_pipeline_task(plan: dict, chat_id: str | int = None):
-    if not PIPELINE_LOCK.acquire(blocking=False):
-        tg_send("⚠️ 현재 다른 영상 제작/업로드 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.", chat_id=chat_id)
-        return
-
+def _reels_job(plan: dict, chat_id: str | int = None):
+    """릴스 제작+게시 본문 (락은 호출부가 관리). 실패해도 예외를 밖으로 던지지 않고 텔레그램으로 알린다."""
     title = plan.get("title", "릴스 영상")
     series = plan.get("series", "MBTI")
     mbti = plan.get("mbti", "") or "ENFP"
@@ -313,120 +314,141 @@ def execute_pipeline_task(plan: dict, chat_id: str | int = None):
     topic = plan.get("topic", "")
     trend_hint = plan.get("trend_hint", "")
 
-    def _worker():
-        try:
-            tg_send(
-                f"🎬 <b>[{html.escape(title)}]</b> 제작을 시작합니다!\n\n"
-                f"1. 대본 기획 (Gemini 3.1 Flash-Lite)\n"
-                f"2. 한국어 음성 합성 (TTS)\n"
-                f"3. 16:9 비주얼 생성 및 릴스 프레임 합성\n"
-                f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"
-                f"5. Google Drive 업로드\n"
-                f"6. Instagram 릴스 자동 게시\n"
-                f"7. YouTube Shorts 자동 게시\n\n"
-                f"⏳ 약 1~3분 소요됩니다.",
-                chat_id=chat_id
+    try:
+        tg_send(
+            f"🎬 <b>[{html.escape(title)}]</b> 제작을 시작합니다!\n\n"
+            f"1. 대본 기획 (Gemini 3.1 Flash-Lite)\n"
+            f"2. 한국어 음성 합성 (TTS)\n"
+            f"3. 16:9 비주얼 생성 및 릴스 프레임 합성\n"
+            f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"
+            f"5. Google Drive 업로드\n"
+            f"6. Instagram 릴스 자동 게시\n"
+            f"7. YouTube Shorts 자동 게시\n\n"
+            f"⏳ 약 1~3분 소요됩니다.",
+            chat_id=chat_id
+        )
+
+        res = run_pipeline(
+            series=series,
+            mbti=mbti,
+            element=element,
+            topic=topic,
+            trend_hint=trend_hint,
+            mock_script=False,
+            mock_images=False,
+            upload_gdrive=True,
+            publish_insta=True,
+            publish_youtube=True
+        )
+
+        v_path = res.get("video_path", "")
+        gdrive = res.get("gdrive", {})
+        insta = res.get("instagram", {})
+        youtube = res.get("youtube", {})
+        placeholder_count = res.get("placeholder_scene_count", 0)
+        total_scenes = res.get("total_scene_count", 0)
+
+        lines = [
+            f"🎉 <b>[{html.escape(title)}] 릴스 파이프라인 완료!</b>\n",
+            f"📁 <b>로컬 파일:</b> <code>{html.escape(str(v_path))}</code>"
+        ]
+
+        if res.get("publish_blocked"):
+            lines.append("⛔ <b>자동 게시 중단:</b> 플레이스홀더 씬이 있어 Instagram/YouTube 게시를 건너뛰었습니다. 이미지 엔진 상태 확인 후 재시도하세요.")
+        if placeholder_count:
+            lines.append(
+                f"⚠️ <b>이미지 경고:</b> {placeholder_count}/{total_scenes}개 씬에서 "
+                f"AI 이미지 생성이 실패해 단색 배경(플레이스홀더)으로 대체되었습니다."
             )
 
-            res = run_pipeline(
-                series=series,
-                mbti=mbti,
-                element=element,
-                topic=topic,
-                trend_hint=trend_hint,
-                mock_script=False,
-                mock_images=False,
-                upload_gdrive=True,
-                publish_insta=True,
-                publish_youtube=True
-            )
+        if gdrive.get("folder_link"):
+            lines.append(f"☁️ <b>Google Drive:</b> <a href=\"{gdrive['folder_link']}\">폴더 바로가기</a>")
+        elif gdrive.get("error"):
+            lines.append(f"⚠️ <b>Drive 업로드 참고:</b> {html.escape(str(gdrive['error'])[:150])}")
 
-            v_path = res.get("video_path", "")
-            gdrive = res.get("gdrive", {})
-            insta = res.get("instagram", {})
-            youtube = res.get("youtube", {})
-            placeholder_count = res.get("placeholder_scene_count", 0)
-            total_scenes = res.get("total_scene_count", 0)
+        if insta.get("link"):
+            lines.append(f"📸 <b>Instagram 릴스:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
+        elif insta.get("error"):
+            lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:150])}")
+        elif insta.get("skipped"):
+            lines.append("ℹ️ <b>Instagram:</b> 영상 직링크 미제공으로 건너뜀")
 
-            lines = [
-                f"🎉 <b>[{html.escape(title)}] 릴스 파이프라인 완료!</b>\n",
-                f"📁 <b>로컬 파일:</b> <code>{html.escape(str(v_path))}</code>"
-            ]
+        if youtube.get("link"):
+            lines.append(f"▶️ <b>YouTube Shorts:</b> <a href=\"{youtube['link']}\">숏츠 바로가기</a>")
+        elif youtube.get("error"):
+            lines.append(f"⚠️ <b>YouTube Shorts 참고:</b> {html.escape(str(youtube['error'])[:150])}")
 
-            if res.get("publish_blocked"):
-                lines.append("⛔ <b>자동 게시 중단:</b> 플레이스홀더 씬이 있어 Instagram/YouTube 게시를 건너뛰었습니다. 이미지 엔진 상태 확인 후 재시도하세요.")
-            if placeholder_count:
-                lines.append(
-                    f"⚠️ <b>이미지 경고:</b> {placeholder_count}/{total_scenes}개 씬에서 "
-                    f"AI 이미지 생성이 실패해 단색 배경(플레이스홀더)으로 대체되었습니다."
-                )
+        tg_send("\n".join(lines), chat_id=chat_id)
 
-            if gdrive.get("folder_link"):
-                lines.append(f"☁️ <b>Google Drive:</b> <a href=\"{gdrive['folder_link']}\">폴더 바로가기</a>")
-            elif gdrive.get("error"):
-                lines.append(f"⚠️ <b>Drive 업로드 참고:</b> {html.escape(str(gdrive['error'])[:150])}")
-
-            if insta.get("link"):
-                lines.append(f"📸 <b>Instagram 릴스:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
-            elif insta.get("error"):
-                lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:150])}")
-            elif insta.get("skipped"):
-                lines.append("ℹ️ <b>Instagram:</b> 영상 직링크 미제공으로 건너뜀")
-
-            if youtube.get("link"):
-                lines.append(f"▶️ <b>YouTube Shorts:</b> <a href=\"{youtube['link']}\">숏츠 바로가기</a>")
-            elif youtube.get("error"):
-                lines.append(f"⚠️ <b>YouTube Shorts 참고:</b> {html.escape(str(youtube['error'])[:150])}")
-
-            tg_send("\n".join(lines), chat_id=chat_id)
-
-        except Exception as e:
-            print(f"[PIPELINE][ERROR] {e}")
-            tg_send(f"❌ <b>영상 제작 중 오류가 발생했습니다:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
-        finally:
-            PIPELINE_LOCK.release()
-
-    threading.Thread(target=_worker, daemon=True).start()
+    except Exception as e:
+        print(f"[PIPELINE][ERROR] {e}")
+        tg_send(f"❌ <b>영상 제작 중 오류가 발생했습니다:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
 
 
-def execute_carousel_task(plan: dict, chat_id: str | int = None):
+def _carousel_job(plan: dict, chat_id: str | int = None):
+    """캐러셀 제작+게시 본문 (락은 호출부가 관리). 실패해도 예외를 밖으로 던지지 않고 텔레그램으로 알린다."""
+    title = plan.get("title", "캐러셀")
+
+    try:
+        tg_send(
+            f"🖼 <b>[{html.escape(title)}]</b> 캐러셀 제작을 시작합니다!\n"
+            f"대본 → 표지 비주얼 → 슬라이드 렌더 → 호스팅 → Instagram 게시\n⏳ 약 1분 소요됩니다.",
+            chat_id=chat_id,
+        )
+        res = run_carousel_pipeline(
+            series=plan.get("series", "MBTI"),
+            mbti=plan.get("mbti", "") or "ENFP",
+            element=plan.get("element", "") or "목(木)",
+            topic=plan.get("topic", ""),
+            trend_hint=plan.get("trend_hint", ""),
+            publish_insta=True,
+        )
+        insta = res.get("instagram", {})
+        lines = [f"🎉 <b>[{html.escape(title)}] 캐러셀 완료!</b> ({len(res.get('slide_paths', []))}장)\n"]
+        if insta.get("link"):
+            lines.append(f"📸 <b>Instagram 캐러셀:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
+        elif insta.get("error"):
+            lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:200])}")
+        elif insta.get("skipped"):
+            lines.append("⛔ <b>자동 게시 중단:</b> 표지 이미지 생성에 실패해 게시를 건너뛰었습니다.")
+        tg_send("\n".join(lines), chat_id=chat_id)
+    except Exception as e:
+        print(f"[CAROUSEL][ERROR] {e}")
+        tg_send(f"❌ <b>캐러셀 제작 중 오류:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
+
+
+def _run_locked(jobs, plan: dict, chat_id: str | int = None):
+    """PIPELINE_LOCK을 한 번 잡고 jobs를 순서대로 백그라운드 실행합니다 (한 작업이 실패해도 다음 작업은 진행)."""
     if not PIPELINE_LOCK.acquire(blocking=False):
         tg_send("⚠️ 현재 다른 제작/업로드 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.", chat_id=chat_id)
         return
 
-    title = plan.get("title", "캐러셀")
-
     def _worker():
         try:
-            tg_send(
-                f"🖼 <b>[{html.escape(title)}]</b> 캐러셀 제작을 시작합니다!\n"
-                f"대본 → 표지 비주얼 → 슬라이드 렌더 → 호스팅 → Instagram 게시\n⏳ 약 1분 소요됩니다.",
-                chat_id=chat_id,
-            )
-            res = run_carousel_pipeline(
-                series=plan.get("series", "MBTI"),
-                mbti=plan.get("mbti", "") or "ENFP",
-                element=plan.get("element", "") or "목(木)",
-                topic=plan.get("topic", ""),
-                trend_hint=plan.get("trend_hint", ""),
-                publish_insta=True,
-            )
-            insta = res.get("instagram", {})
-            lines = [f"🎉 <b>[{html.escape(title)}] 캐러셀 완료!</b> ({len(res.get('slide_paths', []))}장)\n"]
-            if insta.get("link"):
-                lines.append(f"📸 <b>Instagram 캐러셀:</b> <a href=\"{insta['link']}\">게시물 바로가기</a>")
-            elif insta.get("error"):
-                lines.append(f"⚠️ <b>Instagram 게시 참고:</b> {html.escape(str(insta['error'])[:200])}")
-            elif insta.get("skipped"):
-                lines.append("⛔ <b>자동 게시 중단:</b> 표지 이미지 생성에 실패해 게시를 건너뛰었습니다.")
-            tg_send("\n".join(lines), chat_id=chat_id)
-        except Exception as e:
-            print(f"[CAROUSEL][ERROR] {e}")
-            tg_send(f"❌ <b>캐러셀 제작 중 오류:</b>\n<code>{html.escape(str(e)[:400])}</code>", chat_id=chat_id)
+            for job in jobs:
+                job(plan, chat_id)
         finally:
             PIPELINE_LOCK.release()
 
     threading.Thread(target=_worker, daemon=True).start()
+
+
+def execute_pipeline_task(plan: dict, chat_id: str | int = None):
+    _run_locked([_reels_job], plan, chat_id)
+
+
+def execute_carousel_task(plan: dict, chat_id: str | int = None):
+    _run_locked([_carousel_job], plan, chat_id)
+
+
+def execute_both_task(plan: dict, chat_id: str | int = None):
+    """한 번의 선택으로 릴스(Instagram+YouTube)와 캐러셀을 연달아 제작·게시합니다."""
+    tg_send(
+        f"🚀 <b>[{html.escape(plan.get('title', '기획안'))}]</b> 릴스 + 캐러셀을 연달아 제작·게시합니다.\n"
+        f"순서: 릴스 → 캐러셀 (총 약 3~5분)",
+        chat_id=chat_id,
+    )
+    _run_locked([_reels_job, _carousel_job], plan, chat_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -455,12 +477,12 @@ def handle_custom_topic_text(text: str, chat_id: str | int):
     label = DOMAIN_LABELS.get(info["series"], info["series"]) + (f" {info['mbti']}" if info["mbti"] else "")
     markup = {
         "inline_keyboard": [
-            [{"text": "🎬 릴스로 제작 & 게시", "callback_data": key}],
-            [{"text": "🖼 캐러셀로 제작 & 게시", "callback_data": f"car:{key}"}],
+            [{"text": "🚀 릴스+캐러셀 한 번에 게시", "callback_data": f"both:{key}"}],
+            [{"text": "🎬 릴스만", "callback_data": key}, {"text": "🖼 캐러셀만", "callback_data": f"car:{key}"}],
         ]
     }
     tg_send(
-        f"📝 <b>직접 입력 주제</b>\n• 시리즈: <b>{html.escape(label)}</b>\n• 주제: {html.escape(info['topic'])}\n\n어떤 포맷으로 만들까요?",
+        f"📝 <b>직접 입력 주제</b>\n• 시리즈: <b>{html.escape(label)}</b>\n• 주제: {html.escape(info['topic'])}\n\n🚀 버튼을 누르면 릴스와 캐러셀이 모두 게시돼요.",
         reply_markup=markup,
         chat_id=chat_id,
     )
@@ -480,12 +502,16 @@ def handle_callback(cq: dict, chat_id: str | int = None):
         return
 
     as_carousel = data.startswith("car:")
-    plan = get_proposal(data[4:] if as_carousel else data)
+    as_both = data.startswith("both:")
+    key = data[4:] if as_carousel else data[5:] if as_both else data
+    plan = get_proposal(key)
     if not plan:
         tg_send("⚠️ 기획안 정보가 만료되었거나 찾을 수 없습니다. /generate 로 다시 요청하세요.", chat_id=chat_id)
         return
 
-    if as_carousel:
+    if as_both:
+        execute_both_task(plan, chat_id=chat_id)
+    elif as_carousel:
         execute_carousel_task(plan, chat_id=chat_id)
     else:
         execute_pipeline_task(plan, chat_id=chat_id)

@@ -74,7 +74,7 @@ def _series_brief(series: str, context: dict) -> str:
         return brief
     if series in DOMAIN_LABELS:
         label = DOMAIN_LABELS[series]
-        return f"[{label} 시리즈]\n주제: {context.get('topic', f'오늘의 {label} 운세')}\n{label} 핵심 포인트 해석 → 현실 조언"
+        return f"[{label} 시리즈]\n주제: {context.get('topic', f'{label} 특성 TOP 랭킹')}\n{label} 핵심 포인트 해석 → 현실 조언"
     return f"주제: {context.get('topic', '운세 캐러셀')}"
 
 
@@ -144,5 +144,5 @@ def _fallback(series: str, context: dict) -> CarouselScript:
             CarouselSlide(headline="오늘 바로 할 행동 하나", body="결정을 내리기 전에 10분만 멈추고 메모해 보세요."),
             CarouselSlide(headline="저장해두고 다시 보기", body="도움이 됐다면 저장하고 팔로우해 주세요. 매일 새로운 운세 포인트를 알려드려요."),
         ],
-        instagram_caption=f"{topic}, 이것만 알아도 달라져요. 저장해두고 필요할 때 꺼내 보세요.\n\n#{mbti} #MBTI운세 #사주 #오늘의운세 #운세",
+        instagram_caption=f"{topic}, 이것만 알아도 달라져요. 저장해두고 필요할 때 꺼내 보세요.\n\n#{mbti} #MBTI운세 #사주 #운세",
     )

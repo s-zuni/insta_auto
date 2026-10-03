@@ -9,29 +9,18 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 규칙은 이번 프로젝트에서 여러 차례 시행착오(카드형 박스 디자인 거부, 한자 중복 발음 버그, 단어수
 기반 자막 분할의 부자연스러움 등)를 거쳐 확정된 것이므로, 코드를 다시 설계하기 전에 먼저 읽으세요.
 
-## 1. 프레임 레이아웃 (`pipeline/visual_gen.py :: compose_reels_frame`)
+## 1. 프레임 레이아웃 (`pipeline/visual_gen.py :: compose_reels_frame`) — 2차 기획안 확정
 
-캔버스 1080x1920 (9:16). 세 구역으로 고정:
+캔버스 1080x1920 (9:16). 카드형 박스는 사용하지 않는다(거부된 디자인).
 
-1. **상단 고정 제목 헤더** — 영상 전체에서 동일한 카테고리 태그 + 영상 주제 제목을 매 씬 동일하게
-   표시 (씬마다 바뀌지 않음). 카드형 배경 박스/테두리는 사용하지 않는다 — 배경에 직접 텍스트를
-   얹는 방식(레퍼런스: 실제 바이럴 릴스 계정들의 헤드라인 스타일)이 사용자가 원하는 디자인이며,
-   둥근 사각형 카드 박스는 명시적으로 거부된 디자인이다.
-   - 태그: `[ {category_tag} ]`, 30px, accent 색상(`#FFBB40` 부근), 배경/테두리 없음.
-   - 제목: 56px bold, 흰색, 중앙 정렬, 최대 3줄. 줄바꿈은 반드시 `wrap_by_pixel_width()`
-     (`pipeline/text_utils.py`)로 실측 픽셀 폭 기준 — `textwrap.wrap(width=N)` 같은 글자 수
-     기준 줄바꿈은 한글에서 부정확하므로 사용 금지.
-   - 헤더 높이는 제목 줄 수에 따라 동적으로 계산(`top_pad+tag_h+gap+line_h*lines+bottom_pad`),
-     `max(380, min(h, 620))`로 클램프. 고정 높이로 되돌리지 말 것(1줄 제목과 3줄 제목이 같은
-     여백을 가지면 어색해짐).
-2. **중앙 16:9 비주얼** — 헤더 바로 아래 폭 1080 x 높이 608(=1080*9/16)로 배치. 위/아래 경계에
-   3px accent 라인. 이미지 생성 엔진(나노바나나→FLUX→Imagen3)은 모두 16:9로 요청한다 — 9:16으로
-   되돌리면 이 레이아웃이 깨진다.
-3. **하단 자막 영역** — 이미지 아래 남은 공간은 깔끔한 다크 그라디언트(사진 블러 배경 아님)로
-   채우고, 여기에 `composer.py`가 ASS 자막을 하드번인한다. `ass 스타일의 MarginV=340`이 이 영역
-   중간쯤에 자막이 앉도록 튜닝되어 있음 — 헤더/이미지 치수를 바꾸면 이 값도 함께 재검토.
-
-색상: 배경 그라디언트 `#111121` → `#08080d`(위→아래), accent `#FFBB40`.
+- **제목**: Pretendard Bold 128px, 가운데 정렬, 텍스트 상단 Y=265, 검정 외곽선(stroke 8). 최대 2줄
+  (이미지 침범 방지) — 2줄을 넘으면 폰트를 8px씩 줄여(최소 88) 맞춘다. 줄바꿈은 `wrap_by_pixel_width()`.
+  카테고리 태그/액센트 라인은 제거됨.
+- **이미지**: 16:9(1080x608)를 캔버스 세로 정중앙(y=656)에 배치.
+- **자막**: `composer.py` ASS 하드번인. 96px, 흰 글씨 + 검정 박스(BorderStyle=3), 상단 Y=1423
+  (Alignment=8, MarginV=`SUBTITLE_Y`), 가운데 정렬. 단어 하이라이트 색은 쓰지 않음(흰색 고정).
+  Inter는 한글 글리프가 없어 Inter 기반 한글 폰트인 Pretendard Bold로 대체.
+- 배경: 다크 그라디언트 `#111121` → `#08080d`.
 
 ## 2. 폰트 / 한자 처리
 
@@ -50,8 +39,8 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 - 단어 개수 기반으로 대충 반으로 자르는 방식은 폐기됨. 현재 로직:
   1. `split_into_clauses()` — 문장부호(`. ! ? ,`)와 한국어 어미(`~요/~죠/~다` 뒤) 기준으로
      나레이션을 자연스러운 구(clause) 단위로 분할. 6자 미만 조각은 앞 구절에 병합.
-  2. `wrap_by_pixel_width()` — 각 구절을 ASS 스타일과 동일한 폰트/크기(Pretendard 62px)로
-     실측하여 픽셀 폭(880px, `SUBTITLE_MAX_WIDTH`) 기준 줄바꿈.
+  2. `wrap_by_pixel_width()` — 각 구절을 ASS 스타일과 동일한 폰트/크기(Pretendard 96px)로
+     실측하여 픽셀 폭(900px, `SUBTITLE_MAX_WIDTH`) 기준 줄바꿈.
   3. 한 자막 블록 최대 2줄(`max_lines`). 줄바꿈은 ASS `\N`.
   4. 각 블록의 재생 구간은 전체 씬 duration을 글자 수 비례로 배분 (`build_caption_chunks`).
 - 자막 폭/폰트 크기를 바꾸면 `SUBTITLE_FONT_SIZE`/`SUBTITLE_MAX_WIDTH`(composer.py 상단 상수)와
@@ -100,8 +89,7 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 ## 7. 단어 단위 자막 / BGM / 커버 / 캐러셀 (추가 스펙)
 
 - **자막은 단어 단위 카라오케(ASS kf 태그)**: `text_utils.build_karaoke_blocks`가 TTS `word_timings`를 어절에
-  `align_word_times`로 정렬한다(글자 누적 위치 기반, 실패 시 글자 수 비례). 읽는 단어가 골드(Primary
-  `&H0040BBFF`)로 채워지고 아직 안 읽은 단어는 흰색(Secondary). 블록 분할 규칙(구 단위 + 실측 폭 + 최대 2줄)은 그대로.
+  `align_word_times`로 정렬한다(글자 누적 위치 기반, 실패 시 글자 수 비례). (현재는 Primary/Secondary 모두 흰색이라 색 변화 없음). 블록 분할 규칙(구 단위 + 실측 폭 + 최대 2줄)은 그대로.
   - TTS 타이밍: Edge-TTS는 `boundary="WordBoundary"` 필수(7.x 기본은 문장 단위), Google TTS는 단어별 SSML
     `<mark>` + v1beta1 time pointing으로 실측(실패 시 균등 분할 폴백).
   - **디졸브 보정**: 씬 전환 xfade/acrossfade가 타임라인을 (씬 수-1)*0.28초 줄이므로 씬 k의 자막은 `k*TRANSITION_DUR`만큼
@@ -120,3 +108,17 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
   집계 게시물이 `INSIGHTS_MIN_POSTS`(기본 5) 미만이면 예시를 쓰지 않는다.
 - **사용자 지정 주제**: 텔레그램 `/topic 주제` 또는 기획안 메시지의 '직접 주제 입력' 버튼 →
   `topic_crawler.classify_custom_topic`이 MBTI/TAROT/SHINJEOM/JAMIDOSU/SAJU로 분류(운세 도메인 제약 유지).
+
+## 8. 주제 / 나레이션 톤 (2차 기획안)
+
+- '오늘의 운세'식 일일 주제 금지. 순위·특성 중심(예: "슬프면 눈물 흘리는 MBTI 1위", "잘 어울리는 사주&MBTI 조합 1위").
+  프롬프트: `mbti_saju_content.REELS_PERSONA`, `topic_crawler.get_crawled_reels_proposals`. 제목은 16자 이내.
+- TTS: `tts_engine.EDGE_VOICE_PRESETS`/`GOOGLE_VOICE_PRESETS`에서 영상마다 남/여+톤(rate/pitch) 랜덤 선택.
+  `TTS_VOICE_NAME` 환경변수를 지정하면 고정.
+
+## 9. 캐러셀 표지 (Figma MJ_1, node 292:180 — 확정)
+
+`carousel_composer.render_cover`: 1080x1350 풀블리드 이미지(16:9 → 4:5 중앙 크롭) + 위→아래 검정 그라디언트(알파 0→100%).
+우상단 슬로건 `MBTIJU: MBTI와 사주가 만나다.`(Black 26, 우측 x=1023, 중심 y=103), 브랜드 `MBTIJU`(Black 48, x=74, 중심 y=829),
+헤드라인(SemiBold 68, x=60, top 850, 폭 996, 줄 높이 150, 최대 3줄, 넘으면 비례 축소). 자간은 모두 폰트 크기의 -5%(PIL은 글자 단위로 직접 그림).
+폰트: `assets/fonts/Pretendard-{Black,SemiBold}.otf`. 본문 슬라이드(`render_content`)는 별개.

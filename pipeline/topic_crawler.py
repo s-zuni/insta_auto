@@ -144,8 +144,10 @@ def get_crawled_reels_proposals() -> Dict[str, Any]:
 관련 없는 범용 이슈(정치/스포츠/연예 가십 등)로 새지 않도록 하세요.
 
 [요구사항]
-- A안: series="{series_a}" ({_label(series_a)}) {"| MBTI 유형: " + mbti_a if mbti_a else ""} — 제목 15자 이내, 초반 3초 후킹 대사, 1줄 요약
-- B안: series="{series_b}" ({_label(series_b)}) {"| MBTI 유형: " + mbti_b if mbti_b else ""} — 제목 15자 이내, 초반 3초 후킹 대사, 1줄 요약
+- '오늘의 운세' 같은 일일 운세 주제는 금지. 순위(1위/TOP)와 특성을 활용한 주제로 기획하세요.
+  예: "슬프면 무조건 눈물 흘리는 MBTI 1위", "올해 남은 3개월 잘되는 사주 특성", "잘 어울리는 MBTI 궁합", "잘 어울리는 사주&MBTI 조합 1위"
+- A안: series="{series_a}" ({_label(series_a)}) {"| MBTI 유형: " + mbti_a if mbti_a else ""} — 제목 16자 이내(큰 글씨 2줄 표시), 초반 3초 후킹 대사, 1줄 요약
+- B안: series="{series_b}" ({_label(series_b)}) {"| MBTI 유형: " + mbti_b if mbti_b else ""} — 제목 16자 이내(큰 글씨 2줄 표시), 초반 3초 후킹 대사, 1줄 요약
 
 JSON 포맷 예시:
 {{
