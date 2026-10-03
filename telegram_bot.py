@@ -459,6 +459,20 @@ def _threads_token() -> str:
     return _get_setting("threads_token") or os.getenv("THREADS_ACCESS_TOKEN", "")
 
 
+def _publish_thread_safe(posts: list, topic_tag: str = None) -> dict:
+    """DB 토큰으로 게시하고, 토큰 오류(190)면 DB 값을 버리고 .env 토큰으로 한 번 재시도합니다."""
+    from pipeline.threads_publisher import publish_thread
+
+    result = publish_thread(posts, topic_tag=topic_tag, access_token=_threads_token() or None)
+    env_token = os.getenv("THREADS_ACCESS_TOKEN", "")
+    if "[190/" in str(result.get("error", "")) and not result.get("ids") and _get_setting("threads_token"):
+        print("[THREADS][WARN] DB 저장 토큰이 거부되어 삭제하고 .env 토큰으로 재시도합니다.")
+        _del_setting("threads_token")
+        if env_token:
+            result = publish_thread(posts, topic_tag=topic_tag, access_token=env_token)
+    return result
+
+
 def _recent_threads_posts() -> list:
     try:
         return json.loads(_get_setting("threads_recent") or "[]")
@@ -525,7 +539,7 @@ def publish_threads_draft(key: str, chat_id: str | int = None):
         return
     draft = json.loads(raw)
     _del_setting(f"thread_draft:{key}")  # 중복 클릭으로 이중 게시되지 않도록 먼저 제거
-    result = publish_thread(draft["posts"], topic_tag=draft.get("topic_tag"), access_token=_threads_token() or None)
+    result = _publish_thread_safe(draft["posts"], topic_tag=draft.get("topic_tag"))
     if result.get("ids"):
         _remember_threads_post(draft["posts"])
     if "error" in result:
@@ -564,7 +578,7 @@ def threads_scheduled_job(slot: str):
         tg_send(f"🧵 <b>Threads {slot} 초안</b> [{thread.category}]\n\n{_format_thread_preview(thread)}", reply_markup=markup)
         return
 
-    result = publish_thread(thread.posts, topic_tag=thread.topic_tag, access_token=_threads_token() or None)
+    result = _publish_thread_safe(thread.posts, topic_tag=thread.topic_tag)
     if result.get("ids"):
         _remember_threads_post(thread.posts)
     if "error" in result:
