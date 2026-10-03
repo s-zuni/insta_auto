@@ -31,6 +31,14 @@ def _url(path: str) -> str:
 
 
 def _api_error(res: requests.Response) -> str:
+    # 상세 원인 추적용: 콘솔 + threads_error.log (토큰은 요청 본문에만 있고 응답에는 없음)
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {res.request.method} {res.request.url.split('?')[0]} -> {res.status_code} {res.text[:1000]}"
+    print(f"[THREADS][ERROR] {line}")
+    try:
+        with open(PROJECT_ROOT / "threads_error.log", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
     try:
         err = res.json().get("error", {})
         return f"[{err.get('code')}/{err.get('error_subcode')}] {err.get('message', res.text)}"
