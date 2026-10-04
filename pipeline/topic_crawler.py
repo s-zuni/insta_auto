@@ -33,12 +33,15 @@ HEADERS = {
 # 크롤링 대상을 "운세" 카테고리로 한정하는 검색 키워드 -> 파이프라인 series 매핑
 # ("사주"는 드라마 등에서 '사주하다(교사하다)'는 동음이의 오탐이 잦고, "타로"는 인명(하카세 타로 등)과
 #  겹치는 경우가 많아 "운세/카드"를 덧붙여 오탐을 줄임.
+# 크롤링 검색 키워드 -> 파이프라인 series 매핑
+# '오늘의 운세' 같은 일일 운세를 피하고, 순위/특성/궁합/대운 중심 키워드로 검색합니다.
 FORTUNE_DOMAINS: Dict[str, str] = {
-    "사주 운세": "SAJU",
-    "MBTI 운세": "MBTI",
-    "신점": "SHINJEOM",
-    "자미두수": "JAMIDOSU",
-    "타로 카드 운세": "TAROT",
+    "MBTI 순위": "MBTI",
+    "MBTI 특징": "MBTI",
+    "MBTI 궁합": "MBTI",
+    "사주 특징": "SAJU",
+    "사주 궁합": "SAJU",
+    "사주 대운": "SAJU",
 }
 
 MBTI_TYPES = [
@@ -46,30 +49,52 @@ MBTI_TYPES = [
     "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP",
 ]
 
-# 실시간 크롤링이 완전히 실패할 때(네트워크 차단 등) 사용할 도메인별 백업 시드
+# '오늘의 운세' 등 일일 운세성 기사를 걸러내기 위한 금지어 목록
+FORBIDDEN_KEYWORDS = [
+    "오늘의", "일진", "띠별", "운세 보기", "일일", "오늘의운세", "내일의", "주간운세", "월간운세", "오늘 운세", "10월"
+]
+
+# 실시간 크롤링 실패 또는 필터링 시 사용할 엄선된 시드 (순위 / 특성 / 궁합 위주)
 FALLBACK_TOPICS: Dict[str, List[str]] = {
-    "SAJU": ["2026 병오년 신년운세 화제", "사주로 본 재물운 급상승 시기", "요즘 뜨는 사주 신조어 총정리"],
-    "MBTI": ["MBTI별 스트레스 해소법 화제", "요즘 유행하는 MBTI 밈 총정리", "MBTI 궁합 논쟁 재점화"],
-    "SHINJEOM": ["신점으로 본 인생 전환점 화두", "요즘 신점 후기 화제", "신점과 사주 차이 궁금증 확산"],
-    "JAMIDOSU": ["자미두수 명반으로 본 대운 화제", "자미두수 초심자 관심 급증", "자미두수 궁위 풀이 화제"],
-    "TAROT": ["오늘의 타로 카드 화제", "타로로 본 연애운 인기", "타로 카드 상징 해석 화제"],
+    "MBTI": [
+        "슬프면 무조건 눈물 흘리는 MBTI 1위",
+        "잘 어울리는 MBTI 궁합 TOP 3",
+        "화나면 뒤도 안 돌아보는 MBTI 순위",
+        "겉은 차가운데 속은 여린 반전 MBTI",
+        "멘탈 가장 단단한 MBTI 순위",
+        "좋아하는 사람 앞에서 삐걱대는 MBTI 1위",
+    ],
+    "SAJU": [
+        "올해 남은 3개월 잘되는 사주 특성",
+        "잘 어울리는 사주&MBTI 조합 1위",
+        "재물운 터지는 사주 오행 특징",
+        "귀인 복 타고난 사주 일주 특징",
+        "하반기 운세 확 풀리는 사주 유형",
+        "돈 복 타고났는데 잘 모르는 사주 특징",
+    ],
 }
 
 
 def fetch_domain_topics(query: str, limit: int = 5) -> List[str]:
-    """구글 뉴스 한국 RSS에서 특정 검색어(query)로 한정된 헤드라인만 수집합니다."""
+    """구글 뉴스 한국 RSS에서 특정 검색어(query)로 한정된 헤드라인을 수집하며, '오늘의 운세'류는 제외합니다."""
     url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
     topics: List[str] = []
     try:
         res = requests.get(url, headers=HEADERS, timeout=8)
         if res.status_code == 200:
             root = ET.fromstring(res.content)
-            for item in root.findall(".//item")[:limit]:
+            for item in root.findall(".//item"):
                 title_elem = item.find("title")
                 if title_elem is not None and title_elem.text:
                     clean_title = title_elem.text.rsplit(" - ", 1)[0].strip()
-                    if clean_title and len(clean_title) > 4:
-                        topics.append(clean_title)
+                    if not clean_title or len(clean_title) < 5:
+                        continue
+                    # 금지어 포함 시 제외
+                    if any(bad in clean_title for bad in FORBIDDEN_KEYWORDS):
+                        continue
+                    topics.append(clean_title)
+                    if len(topics) >= limit:
+                        break
     except Exception as e:
         print(f"[CRAWLER][WARN] '{query}' 검색 수집 실패: {e}")
     return topics
@@ -77,26 +102,25 @@ def fetch_domain_topics(query: str, limit: int = 5) -> List[str]:
 
 def get_crawled_fortune_topics() -> Dict[str, List[str]]:
     """
-    운세 5개 도메인(사주/MBTI/신점/자미두수/타로) 각각에 대해 실시간 뉴스 검색 결과를 수집합니다.
-    반환값 키는 파이프라인 series 이름(SAJU/MBTI/SHINJEOM/JAMIDOSU/TAROT).
+    MBTI 및 사주 도메인에 대해 실시간 뉴스 검색 결과를 수집합니다.
     """
     result: Dict[str, List[str]] = {}
     for keyword, series in FORTUNE_DOMAINS.items():
-        found = fetch_domain_topics(keyword, limit=5)
+        found = fetch_domain_topics(keyword, limit=3)
         if found:
-            result[series] = found
+            result.setdefault(series, []).extend(found)
     return result
 
 
 def _pick_two_series(available: List[str]) -> List[str]:
-    """서로 다른 운세 도메인 2개를 선택 (가능하면 실시간 수집분에서, 부족하면 고정 후보로 보강)."""
-    pool = list(dict.fromkeys(available))  # 순서 보존 중복 제거
-    random.shuffle(pool)
+    """A안, B안으로 사용할 시리즈 2개를 선택합니다 (MBTI와 SAJU 조합 우선)."""
+    pool = list(dict.fromkeys(available))
+    if "MBTI" in pool and "SAJU" in pool:
+        return ["MBTI", "SAJU"]
     if len(pool) >= 2:
+        random.shuffle(pool)
         return pool[:2]
-    fallback_pool = [s for s in ("MBTI", "SAJU", "TAROT", "SHINJEOM", "JAMIDOSU") if s not in pool]
-    pool.extend(fallback_pool)
-    return pool[:2]
+    return ["MBTI", "SAJU"]
 
 
 def get_crawled_reels_proposals() -> Dict[str, Any]:
@@ -132,70 +156,103 @@ def get_crawled_reels_proposals() -> Dict[str, Any]:
     except Exception as e:
         print(f"[CRAWLER][WARN] 성과 예시 로드 실패(무시): {e}")
 
+    system_instruction = """당신은 대한민국 인스타그램 릴스 및 유튜브 숏츠 전문 숏폼 기획자입니다.
+20~30대 여성이 클릭하지 않고는 못 배기는 호기심 유발형 숏폼 기획안(A안, B안)을 작성합니다.
+
+[주제 규칙 - 필수 엄수]
+1. '오늘의 운세', '일일 운세', 날짜(X월 X일), 일진, 띠별 운세는 절대 금지합니다.
+2. 반드시 아래 4가지 유형 중 하나로만 기획하세요:
+   - [순위형] 특정 상황/성격에서 극단적인 반응을 보이는 MBTI 1위 (예: "슬프면 무조건 눈물 흘리는 MBTI 1위")
+   - [특성형] 특정 시기/대운에 잘 풀리는 사주 오행/십신/일주 특성 (예: "올해 남은 3개월 잘되는 사주 특성")
+   - [궁합형] 환상의 호흡을 자랑하는 MBTI 궁합 (예: "잘 어울리는 MBTI 궁합")
+   - [조합형] 사주와 MBTI가 만나 대박 나는 조합 (예: "잘 어울리는 사주&MBTI 조합 1위")
+3. 제목(title): 공백 포함 16자 이내로 짧고 강렬하게. 줄바꿈(\\n)은 절대 넣지 마세요.
+4. 후킹(hook): 초반 3초에 시청자를 붙잡는 강렬한 대사.
+5. 요약(summary): 1줄 핵심 요약."""
+
     prompt = f"""{examples_block}
 
-
-다음은 운세(사주/MBTI/신점/자미두수/타로) 카테고리에서만 수집한 실시간 트렌드 헤드라인입니다:
+참고할 실시간 트렌드/화제 키워드:
 - [{_label(series_a)}] 관련: "{topic_a}"
 - [{_label(series_b)}] 관련: "{topic_b}"
 
-이 두 트렌드 헤드라인을 각각 반영하여 인스타그램 릴스/유튜브 숏츠용 기획안 2개(A안, B안)를 기획하세요.
-반드시 위에 주어진 카테고리와 헤드라인 내용에 직접 연결되는 구체적 주제여야 하며,
-관련 없는 범용 이슈(정치/스포츠/연예 가십 등)로 새지 않도록 하세요.
+위 트렌드를 참고하여 순위/특성/궁합/조합 유형의 숏폼 기획안 2개(A안, B안)를 작성하세요.
+- A안: series="{series_a}" ({_label(series_a)}) {"| MBTI 유형: " + mbti_a if mbti_a else ""}
+- B안: series="{series_b}" ({_label(series_b)}) {"| MBTI 유형: " + mbti_b if mbti_b else ""}
 
-[요구사항]
-- '오늘의 운세' 같은 일일 운세 주제는 금지. 순위(1위/TOP)와 특성을 활용한 주제로 기획하세요.
-  예: "슬프면 무조건 눈물 흘리는 MBTI 1위", "올해 남은 3개월 잘되는 사주 특성", "잘 어울리는 MBTI 궁합", "잘 어울리는 사주&MBTI 조합 1위"
-- A안: series="{series_a}" ({_label(series_a)}) {"| MBTI 유형: " + mbti_a if mbti_a else ""} — 제목 16자 이내(큰 글씨 2줄 표시), 초반 3초 후킹 대사, 1줄 요약
-- B안: series="{series_b}" ({_label(series_b)}) {"| MBTI 유형: " + mbti_b if mbti_b else ""} — 제목 16자 이내(큰 글씨 2줄 표시), 초반 3초 후킹 대사, 1줄 요약
-
-JSON 포맷 예시:
+JSON 포맷:
 {{
-  "option_a": {{"series": "{series_a}", "mbti": "{mbti_a}", "topic": "구체적 주제", "trend_hint": "{topic_a}", "title": "제목", "hook": "후킹 대사", "summary": "1줄 요약"}},
-  "option_b": {{"series": "{series_b}", "mbti": "{mbti_b}", "topic": "구체적 주제", "trend_hint": "{topic_b}", "title": "제목", "hook": "후킹 대사", "summary": "1줄 요약"}}
-}}
-"""
+  "option_a": {{"series": "{series_a}", "mbti": "{mbti_a}", "topic": "구체적 주제(순위/특성/궁합/조합)", "trend_hint": "{topic_a}", "title": "16자이내제목", "hook": "초반3초 후킹 대사", "summary": "1줄 요약"}},
+  "option_b": {{"series": "{series_b}", "mbti": "{mbti_b}", "topic": "구체적 주제(순위/특성/궁합/조합)", "trend_hint": "{topic_b}", "title": "16자이내제목", "hook": "초반3초 후킹 대사", "summary": "1줄 요약"}}
+}}"""
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
     client = get_gemini_client()
+
+    def _sanitize_opt(opt: dict, default_series: str, default_mbti: str, default_topic: str) -> dict:
+        title = str(opt.get("title", "")).replace("\n", " ").strip()
+        topic = str(opt.get("topic", "")).replace("\n", " ").strip()
+        hook = str(opt.get("hook", "")).strip()
+        summary = str(opt.get("summary", "")).strip()
+        series = opt.get("series") or default_series
+        mbti = opt.get("mbti") or default_mbti
+
+        # 금지어 포함 여부 검증
+        if any(bad in title for bad in FORBIDDEN_KEYWORDS) or any(bad in topic for bad in FORBIDDEN_KEYWORDS) or not title:
+            fb = random.choice(FALLBACK_TOPICS.get(series, FALLBACK_TOPICS["MBTI"]))
+            title = fb[:16]
+            topic = fb
+            hook = f"{fb}, 여러분은 몇 위인가요?"
+            summary = f"{fb}에 대한 심층 분석 및 대처법"
+
+        if len(title) > 16:
+            title = title[:16].strip()
+
+        return {
+            "series": series,
+            "mbti": mbti,
+            "topic": topic,
+            "trend_hint": opt.get("trend_hint") or default_topic,
+            "title": title,
+            "hook": hook,
+            "summary": summary,
+        }
 
     try:
         res = client.models.generate_content(
             model=model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
                 response_mime_type="application/json",
-                temperature=0.8,
+                temperature=0.6,
             )
         )
-        raw_text = res.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.startswith("```"):
-            raw_text = raw_text[3:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-
+        raw_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         import json
-        data = json.loads(raw_text.strip())
+        data = json.loads(raw_text)
         if "option_a" in data and "option_b" in data:
+            data["option_a"] = _sanitize_opt(data["option_a"], series_a, mbti_a, topic_a)
+            data["option_b"] = _sanitize_opt(data["option_b"], series_b, mbti_b, topic_b)
             return data
     except Exception as e:
         print(f"[CRAWLER][WARN] Gemini 크롤링 기획안 생성 에러: {e}")
 
-    # Fallback: Gemini 호출 실패 시 크롤링된 헤드라인을 그대로 주제로 사용
+    # Fallback: 검증된 엄선 시드 템플릿 사용
+    fb_a = random.choice(FALLBACK_TOPICS.get(series_a, FALLBACK_TOPICS["MBTI"]))
+    fb_b = random.choice(FALLBACK_TOPICS.get(series_b, FALLBACK_TOPICS["SAJU"]))
     return {
         "option_a": {
-            "series": series_a, "mbti": mbti_a, "topic": topic_a, "trend_hint": topic_a,
-            "title": f"{_label(series_a)}로 본 {topic_a[:10]}"[:15],
-            "hook": f"요즘 화제인 '{topic_a}', {_label(series_a)}로 풀어드립니다!",
-            "summary": f"{_label(series_a)} 관점에서 본 최신 화제 '{topic_a}' 심층 분석",
+            "series": series_a, "mbti": mbti_a, "topic": fb_a, "trend_hint": topic_a,
+            "title": fb_a[:16],
+            "hook": f"{fb_a}, 여러분은 어떻게 생각하시나요?",
+            "summary": f"{fb_a}의 핵심 포인트와 현실 조언",
         },
         "option_b": {
-            "series": series_b, "mbti": mbti_b, "topic": topic_b, "trend_hint": topic_b,
-            "title": f"{_label(series_b)}로 본 {topic_b[:10]}"[:15],
-            "hook": f"요즘 화제인 '{topic_b}', {_label(series_b)}로 풀어드립니다!",
-            "summary": f"{_label(series_b)} 관점에서 본 최신 화제 '{topic_b}' 심층 분석",
+            "series": series_b, "mbti": mbti_b, "topic": fb_b, "trend_hint": topic_b,
+            "title": fb_b[:16],
+            "hook": f"{fb_b}, 여러분은 어떻게 생각하시나요?",
+            "summary": f"{fb_b}의 핵심 포인트와 현실 조언",
         },
     }
 

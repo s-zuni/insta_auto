@@ -132,10 +132,28 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
         ),
     )
 
+    def _enforce_cta(sc: ReelsScript) -> ReelsScript:
+        fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
+        caption_cta = "👉 프로필 링크에서 당신의 모든 운명을 확인하세요!"
+        if sc.scenes:
+            sc.scenes[-1].narration = fixed_cta
+            if sc.scenes[-1].duration_estimate < 3:
+                sc.scenes[-1].duration_estimate = 4
+        if caption_cta not in sc.instagram_caption:
+            if "#" in sc.instagram_caption:
+                parts = sc.instagram_caption.split("#", 1)
+                sc.instagram_caption = f"{parts[0].strip()}\n\n{caption_cta}\n\n#{parts[1]}"
+            else:
+                sc.instagram_caption = f"{sc.instagram_caption.strip()}\n\n{caption_cta}"
+        sc.title = sc.title.replace("\n", " ").strip()
+        if len(sc.title) > 16:
+            sc.title = sc.title[:16].strip()
+        return sc
+
     if hasattr(response, "parsed") and response.parsed is not None:
         if isinstance(response.parsed, ReelsScript):
-            return response.parsed
-        return ReelsScript.model_validate(response.parsed)
+            return _enforce_cta(response.parsed)
+        return _enforce_cta(ReelsScript.model_validate(response.parsed))
 
     # 텍스트 응답에서 JSON 파싱
     raw_text = response.text.strip()
@@ -148,15 +166,17 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
         raw_text = raw_text[:-3]
 
     data = json.loads(raw_text.strip())
-    return ReelsScript.model_validate(data)
+    return _enforce_cta(ReelsScript.model_validate(data))
 
 
 def create_sample_script(topic: str) -> ReelsScript:
     """
     API 키가 없거나 테스트/오프라인 환경일 때 파이프라인 전체 동작을 검증하기 위한 샘플 대본입니다.
     """
+    fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
+    caption_cta = "👉 프로필 링크에서 당신의 모든 운명을 확인하세요!"
     return ReelsScript(
-        title=f"{topic} - 30초 핵심 가이드",
+        title=f"{topic}"[:16],
         hook="아직도 이걸 모르고 계셨나요? 30초 만에 완벽 정리해 드립니다!",
         scenes=[
             Scene(
@@ -179,15 +199,14 @@ def create_sample_script(topic: str) -> ReelsScript:
             ),
             Scene(
                 scene_id=4,
-                narration="지금 바로 저장해 두시고, 다음 프로젝트에 직접 적용해 보세요!",
-                visual_prompt="Horizontal 16:9 landscape ratio, inspiring bright sunrise over modern city skyline viewed from high rise window, golden hour warm sunlight, cinematic masterpiece, photorealistic, no text",
+                narration=fixed_cta,
+                visual_prompt="Horizontal 16:9 landscape ratio, smartphone screen displaying profile link with mystical glow, golden hour warm sunlight, cinematic masterpiece, photorealistic, no text",
                 duration_estimate=4
             )
         ],
         instagram_caption=f"""🔥 {topic}의 모든 것, 30초 만에 마스터하기!
 
-바쁜 일상 속 생산성을 극대화하는 실전 팁을 정리했습니다.
-도움이 되셨다면 나중에 다시 찾아볼 수 있게 [저장] 누르고 팔로우해 두세요! 🚀
+{caption_cta}
 
 #인스타릴스 #{topic.replace(' ', '')} #생산성 #AI자동화 #릴스제작 #크리에이터 #쇼츠 #꿀팁"""
     )

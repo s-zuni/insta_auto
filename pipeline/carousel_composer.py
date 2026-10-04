@@ -204,6 +204,22 @@ def render_content(index: int, total: int, headline: str, body: str, out_path: P
     img.save(out_path, "JPEG", quality=95)
 
 
+def render_last_slide(out_path: Path) -> bool:
+    """캐러셀 마지막 장: 고정 CTA 프로필 안내 이미지(assets/templates/carousel_cta.png)를 1080x1350으로 렌더링합니다."""
+    cta_path = PROJECT_ROOT / "assets" / "templates" / "carousel_cta.png"
+    if cta_path.is_file():
+        img = Image.open(cta_path).convert("RGBA")
+        canvas = Image.new("RGB", (W, H), (255, 255, 255))
+        scale = min(W / img.width, H / img.height)
+        nw, nh = int(img.width * scale), int(img.height * scale)
+        img_resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        ox, oy = (W - nw) // 2, (H - nh) // 2
+        canvas.paste(img_resized, (ox, oy), mask=img_resized.split()[3] if img_resized.mode == "RGBA" else None)
+        canvas.save(out_path, "JPEG", quality=95)
+        return True
+    return False
+
+
 def render_carousel(script, output_dir: str | Path, cover_image: Optional[str | Path] = None, tag: str = "MBTI x 사주 트렌드") -> List[str]:
     """CarouselScript를 슬라이드 JPEG 목록으로 렌더링하고 경로 리스트를 반환합니다."""
     out_dir = Path(output_dir)
@@ -218,8 +234,12 @@ def render_carousel(script, output_dir: str | Path, cover_image: Optional[str | 
         out = out_dir / f"slide_{i:02d}.jpg"
         if i == 1:
             render_cover(sl.headline, tag, Path(cover_image) if cover_image else None, out, total)
+        elif i == total:
+            # 마지막 장은 사용자가 지정한 고정 프로필 CTA 이미지로 렌더링
+            if not render_last_slide(out):
+                render_content(i, total, sl.headline, sl.body, out, is_last=True)
         else:
-            render_content(i, total, sl.headline, sl.body, out, is_last=(i == total))
+            render_content(i, total, sl.headline, sl.body, out, is_last=False)
         paths.append(str(out.resolve()))
         print(f"  ✅ 슬라이드 {i}/{total} 렌더 완료 -> {out.name}")
     return paths
