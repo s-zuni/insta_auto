@@ -41,7 +41,7 @@ def build_reel_cover(
     raw_image: Optional[str | Path],
     title: str,
     out_path: str | Path,
-    category_tag: str = "MBTI x 사주 트렌드",
+    category_tag: str = "",
 ) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,12 +60,13 @@ def build_reel_cover(
     d = ImageDraw.Draw(img)
     clean = title.replace("\n", " ").strip()
 
-    size = 112
+    # 제목 폰트 크기: 기존 112에서 약 1.3배 증가한 146부터 시작
+    size = 146
     while True:
         font = _font(size)
-        lines = wrap_by_pixel_width(clean, font, W - 200) or [clean]
-        line_h = int(size * 1.3)
-        if (len(lines) <= 4 and len(lines) * line_h <= 560) or size <= 68:
+        lines = wrap_by_pixel_width(clean, font, W - 160) or [clean]
+        line_h = int(size * 1.25)
+        if (len(lines) <= 4 and len(lines) * line_h <= 680) or size <= 88:
             break
         size -= 6
     lines = lines[:4]
@@ -74,11 +75,11 @@ def build_reel_cover(
     center_y = (SAFE_TOP + SAFE_BOTTOM) // 2
     y = center_y - block_h // 2
 
-    d.text((W // 2, y - 90), f"[ {category_tag} ]", font=_font(38), fill=ACCENT, anchor="mm")
-    d.line([(W // 2 - 70, y - 45), (W // 2 + 70, y - 45)], fill=ACCENT, width=6)
+    # 태그 [ MBTI x 사주 트렌드 ] 및 밑줄은 출력하지 않음
+    stroke_w = max(5, int(size * 0.045))
     for line in lines:
         d.text((W // 2, y), line, font=font, fill=(255, 255, 255), anchor="ma",
-               stroke_width=4, stroke_fill=(0, 0, 0))
+               stroke_width=stroke_w, stroke_fill=(0, 0, 0))
         y += line_h
 
     img.save(out_path, "JPEG", quality=95)
