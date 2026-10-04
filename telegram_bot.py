@@ -461,10 +461,10 @@ def _threads_token() -> str:
 
 def _publish_thread_safe(posts: list, topic_tag: str = None) -> dict:
     """DB 토큰으로 게시하고, 토큰 오류(190)면 DB 값을 버리고 .env 토큰으로 한 번 재시도합니다."""
-    from pipeline.threads_publisher import publish_thread
+    from pipeline.threads_publisher import publish_thread, clean_token
 
     result = publish_thread(posts, topic_tag=topic_tag, access_token=_threads_token() or None)
-    env_token = os.getenv("THREADS_ACCESS_TOKEN", "")
+    env_token = clean_token(os.getenv("THREADS_ACCESS_TOKEN", ""))
     if "[190/" in str(result.get("error", "")) and not result.get("ids") and _get_setting("threads_token"):
         print("[THREADS][WARN] DB 저장 토큰이 거부되어 삭제하고 .env 토큰으로 재시도합니다.")
         _del_setting("threads_token")

@@ -26,6 +26,14 @@ THREADS_VERSION = os.getenv("THREADS_API_VERSION", "v1.0")
 MAX_TEXT_LEN = 500
 
 
+def clean_token(token: Optional[str]) -> str:
+    """Railway 등에 붙여넣다 섞인 따옴표/공백/줄바꿈/'THREADS_ACCESS_TOKEN=' 접두어를 제거합니다."""
+    t = (token or "").strip()
+    if "=" in t[:30]:
+        t = t.split("=", 1)[1]
+    return "".join(t.split()).strip("'\"")
+
+
 def _url(path: str) -> str:
     return f"{THREADS_API}/{THREADS_VERSION}/{path}".rstrip("/")
 
@@ -63,7 +71,7 @@ def exchange_for_long_lived_token(short_lived_token: str, app_secret: Optional[s
 
 def refresh_long_lived_token(token: Optional[str] = None) -> Dict[str, Any]:
     """장기 토큰을 60일 더 연장합니다(발급 24시간 후부터, 만료 전에만 가능). 반환: {access_token, expires_in}"""
-    token = token or os.getenv("THREADS_ACCESS_TOKEN", "")
+    token = clean_token(token or os.getenv("THREADS_ACCESS_TOKEN", ""))
     if not token:
         return {"error": "THREADS_ACCESS_TOKEN 이 필요합니다."}
     res = requests.get(
@@ -78,7 +86,7 @@ def refresh_long_lived_token(token: Optional[str] = None) -> Dict[str, Any]:
 
 def get_me(token: Optional[str] = None) -> Dict[str, Any]:
     """토큰 소유자의 id/username 조회 (설정 확인용)."""
-    token = token or os.getenv("THREADS_ACCESS_TOKEN", "")
+    token = clean_token(token or os.getenv("THREADS_ACCESS_TOKEN", ""))
     res = requests.get(_url("me"), params={"fields": "id,username", "access_token": token}, timeout=30)
     if not res.ok:
         return {"error": _api_error(res)}
@@ -94,7 +102,7 @@ def publish_text_to_threads(
 ) -> Dict[str, Any]:
     """텍스트 글 1건을 게시합니다(reply_to_id를 주면 해당 글에 대한 답글). 성공 시 {"id": ..., "permalink": ...}, 실패 시 {"error": ...}."""
     user_id = user_id or os.getenv("THREADS_USER_ID", "")
-    access_token = access_token or os.getenv("THREADS_ACCESS_TOKEN", "")
+    access_token = clean_token(access_token or os.getenv("THREADS_ACCESS_TOKEN", ""))
     if not user_id or not access_token:
         return {"error": "THREADS_USER_ID 및 THREADS_ACCESS_TOKEN이 필요합니다."}
     text = (text or "").strip()
