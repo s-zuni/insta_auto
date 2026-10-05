@@ -1,4 +1,4 @@
-﻿"""
+"""
 Google Drive Automatic Uploader Module for Instagram Reels Pipeline.
 Uses OAuth user credentials (not a service account) to upload videos, captions, and
 metadata, since service accounts have 0-byte storage quota on personal Gmail Drives.
@@ -234,3 +234,86 @@ def upload_reels_assets_to_drive(
         else:
             print(f"[ERROR] Google Drive 업로드 중 오류 발생: {e}")
         return {"error": err_msg}
+
+
+def get_gdrive_bgm_tracks(target_mood: str = "default") -> list[dict]:
+    """
+    Google Drive의 BGM 폴더(GDRIVE_BGM_FOLDER_ID 또는 GDRIVE_FOLDER_ID 하위 BGM)에서
+    해당 무드(bright, calm, mystic, default)에 속하는 오디오 파일 메타데이터 목록을 조회합니다.
+    로컬에는 파일을 저장하지 않고 드라이브 상의 목록만 조회합니다.
+    """
+    try:
+        service = get_drive_service()
+        raw_bgm_folder = os.getenv("GDRIVE_BGM_FOLDER_ID", "").strip()
+
+        if not raw_bgm_folder:
+            raw_root = os.getenv("GDRIVE_FOLDER_ID", "").strip()
+            if not raw_root:
+                return []
+            root_id = raw_root.split("?")[0].strip()
+            # BGM 루트 폴더 찾기
+            q = f"'{root_id}' in parents and name = 'BGM' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            res = service.files().list(q=q, fields="files(id, name)").execute()
+            folders = res.get("files", [])
+            if not folders:
+                return []
+            bgm_folder_id = folders[0]["id"]
+        else:
+            bgm_folder_id = raw_bgm_folder.split("?")[0].strip()
+
+        # 하위 무드 폴더(bright, calm 등) 탐색
+        q_mood = f"'{bgm_folder_id}' in parents and name = '{target_mood}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        res_mood = service.files().list(q=q_mood, fields="files(id, name)").execute()
+        mood_folders = res_mood.get("files", [])
+
+        search_folder_id = mood_folders[0]["id"] if mood_folders else bgm_folder_id
+
+        # 해당 폴더 내의 오디오 파일 조회
+        audio_query = f"'{search_folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+        res_audio = service.files().list(q=audio_query, fields="files(id, name, mimeType)").execute()
+        all_files = res_audio.get("files", [])
+
+        audio_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
+        valid_tracks = [
+            f for f in all_files
+            if Path(f.get("name", "")).suffix.lower() in audio_exts or "audio" in f.get("mimeType", "")
+        ]
+
+        # 만약 해당 무드 폴더에 곡이 없는데 하위 폴더였던 경우, BGM 루트 폴더 자체의 곡들도 확인
+        if not valid_tracks and search_folder_id != bgm_folder_id:
+            root_audio_query = f"'{bgm_folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+            res_root_audio = service.files().list(q=root_audio_query, fields="files(id, name, mimeType)").execute()
+            valid_tracks = [
+                f for f in res_root_audio.get("files", [])
+                if Path(f.get("name", "")).suffix.lower() in audio_exts or "audio" in f.get("mimeType", "")
+            ]
+
+        return valid_tracks
+    except Exception as e:
+        print(f"  [WARN] Google Drive BGM 트랙 조회 실패: {e}")
+        return []
+
+
+def download_drive_file_to_temp(file_id: str, dest_path: Path | str) -> bool:
+    """
+    Google Drive에서 특정 파일 1개만 로컬 임시 경로로 다운로드합니다.
+    (합성 직전에만 가져오고 작업 후 즉시 삭제하여 로컬 디스크 용량을 보존)
+    """
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        import io
+
+        service = get_drive_service()
+        dest_path = Path(dest_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        with open(dest_path, "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+        return True
+    except Exception as e:
+        print(f"  [WARN] Google Drive 파일 다운로드 실패 ({file_id}): {e}")
+        return False
