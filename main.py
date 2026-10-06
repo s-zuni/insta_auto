@@ -298,23 +298,24 @@ def run_carousel_pipeline(
     if publish_insta:
         print("\n[3/3] 📸 슬라이드 호스팅 및 Instagram 캐러셀 게시...")
         urls = []
-            for sp in slide_paths:
-                up = media_host.upload_public(sp, kind="image", folder="carousel")
-                if not up.get("url"):
-                    insta_result = {"error": f"슬라이드 업로드 실패: {up.get('error')}"}
-                    break
-                urls.append(up["url"])
-            if not insta_result:
-                try:
-                    insta_result = publish_carousel_to_instagram(urls, script.instagram_caption)
-                    if insta_result.get("id"):
-                        record_post(
-                            insta_result["id"], "carousel", series=series, mbti=mbti if series == "MBTI" else "",
-                            topic=topic, title=script.title, hook=script.slides[0].headline,
-                            trend_hint=trend_hint, permalink=insta_result.get("link", ""),
-                        )
-                except Exception as e:
-                    insta_result = {"error": str(e)}
+        for sp in slide_paths:
+            up = media_host.upload_public(sp, kind="image", folder="carousel")
+            if not up.get("url"):
+                insta_result = {"error": f"슬라이드 업로드 실패: {up.get('error')}"}
+                break
+            urls.append(up["url"])
+        if not insta_result:
+            try:
+                insta_result = publish_carousel_to_instagram(urls, script.instagram_caption)
+                if insta_result.get("id"):
+                    record_post(
+                        insta_result["id"], "carousel", series=series, mbti=mbti if series == "MBTI" else "",
+                        topic=topic, title=script.title, hook=script.slides[0].headline,
+                        trend_hint=trend_hint, permalink=insta_result.get("link", ""),
+                    )
+            except Exception as e:
+                insta_result = {"error": str(e)}
+
 
     print("\n" + "=" * 65)
     print(f"🎉 캐러셀 파이프라인 완료! (총 {time.time() - start:.1f}초) | 슬라이드 {len(slide_paths)}장")
