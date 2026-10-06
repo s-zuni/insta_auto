@@ -213,27 +213,73 @@ def generate_with_vertex_imagen(
     output_path: Path,
     project_id: str,
     location: str = "us-central1",
-    model_name: str = "imagen-3.0-generate-002"
+    model_name: str = "gemini-2.5-flash-image",
+    retries: int = 2,
 ) -> bool:
-    """Vertex AI SDK를 이용해 Imagen 3로 16:9 이미지를 생성합니다."""
+    """Vertex AI API를 이용해 고화질 16:9 이미지를 생성합니다 (gemini-2.5-flash-image 또는 imagen-3.0)."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import vertexai
-        from vertexai.preview.vision_models import ImageGenerationModel
-        vertexai.init(project=project_id, location=location)
-        model = ImageGenerationModel.from_pretrained(model_name)
-        images = model.generate_images(
-            prompt=prompt,
-            number_of_images=1,
-            aspect_ratio="16:9",
-            safety_filter_level="block_some",
-            person_generation="allow_adult",
-        )
-        if images:
-            images[0].save(location=str(output_path), include_generation_parameters=False)
-            return True
-    except Exception:
-        pass
+    clean_prompt = prompt.replace("\n", " ").strip()
+    enhanced_prompt = (
+        f"{clean_prompt}. Horizontal 16:9 landscape aspect ratio, ultra-high resolution, "
+        "photorealistic, cinematic lighting, sharp focus, rich detail, no text, no letters, "
+        "no watermark, no logo, no subtitles baked into the image."
+    )
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"    [VERTEX-AI] 이미지 생성 요청 중 (시도 {attempt}/{retries}, model={model_name}): '{prompt[:40]}...'")
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(vertexai=True, project=project_id, location=location)
+
+            # 1. Gemini Flash Image 계열 모델
+            if "gemini" in model_name:
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=enhanced_prompt,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"],
+                        image_config=types.ImageConfig(
+                            aspect_ratio="16:9",
+                            image_size=os.getenv("GEMINI_IMAGE_SIZE", "1K"),
+                        ),
+                    ),
+                )
+                image_bytes = None
+                for candidate in getattr(resp, "candidates", None) or []:
+                    for part in getattr(candidate.content, "parts", None) or []:
+                        inline_data = getattr(part, "inline_data", None)
+                        if inline_data and inline_data.data:
+                            image_bytes = inline_data.data
+                            break
+                    if image_bytes:
+                        break
+
+                if image_bytes and len(image_bytes) > 10000:
+                    with open(output_path, "wb") as f:
+                        f.write(image_bytes)
+                    return True
+
+            # 2. Imagen 3 레거시/전용 엔드포인트
+            else:
+                result = client.models.generate_images(
+                    model=model_name,
+                    prompt=prompt,
+                    config=dict(number_of_images=1, aspect_ratio="16:9"),
+                )
+                if result and result.generated_images:
+                    img_obj = result.generated_images[0]
+                    with open(output_path, "wb") as f:
+                        f.write(img_obj.image.image_bytes)
+                    return True
+
+        except Exception as e:
+            print(f"    [WARN] Vertex AI 생성 실패 (시도 {attempt}/{retries}): {e}")
+
+        if attempt < retries:
+            time.sleep(2 * attempt)
+
     return False
 
 
@@ -274,7 +320,7 @@ def generate_scene_images(
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     location = os.getenv("GCP_LOCATION", "us-central1")
-    model_name = os.getenv("IMAGEN_MODEL", "imagen-3.0-generate-002")
+    model_name = os.getenv("VERTEX_IMAGE_MODEL") or os.getenv("IMAGEN_MODEL") or "gemini-2.5-flash-image"
     sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     can_use_vertex = (not force_mock) and bool(project_id) and bool(sa_path and os.path.isfile(sa_path))
 
