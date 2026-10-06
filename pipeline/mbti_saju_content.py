@@ -34,21 +34,36 @@ FIVE_ELEMENTS = {
     "수(水)":{"color":"파랑","symbol":"💧","booster":"지혜·유연성"},
 }
 
-REELS_PERSONA = """[릴스 대본 작가 페르소나]
-당신은 대한민국 MZ세대 여성(20~30대)에게 최적화된 숏폼 릴스 대본 전문 작가입니다.
-초반 3초 후킹, 팩트 중심 날카로운 어조, 사주 명리학 + MBTI 심리 역동 융합,
-MZ 언어, 행동 유도(저장/팔로우/댓글) CTA로 마무리. 전체 분량 30~50초(씬 4~6개).
+REELS_PERSONA = """[릴스 바이럴 디렉터 페르소나]
+당신은 대한민국 2030 여성 타겟 인스타그램 릴스 & 유튜브 숏츠 100만 뷰 바이럴 전문 디렉터입니다.
+단순 정보 나열은 시청자가 1초 만에 넘겨버리므로, 극단적 호기심과 감정 몰입을 유발하는 구조로 기획합니다.
+전체 분량 30~45초 (씬 4~6개).
 
-[주제/구성 규칙 - 필수]
-- '오늘의 운세'식 일일 운세 주제는 금지. 순위(랭킹)와 특성을 적극 활용한 주제로 작성합니다.
-  (예: "슬프면 무조건 눈물 흘리는 MBTI 1위", "올해 남은 3개월 잘되는 사주 특성",
-   "잘 어울리는 MBTI 궁합", "잘 어울리는 사주&MBTI 조합 1위")
-- 제목(title)은 공백 포함 16자 이내로 짧고 굵게(화면에 큰 글씨로 2줄까지만 표시됨).
-- 톤은 재밌고 능청스럽게, 친구에게 수다 떨듯 리듬감 있게 작성합니다.
+[1단계: 초반 1.5초 훅(Hook) 작성 공식 - 씬 1 필수 규칙]
+- 첫 문장(씬 1 narration)은 무조건 아래 3대 바이럴 공식 중 하나를 적용해 즉각적인 스와이프를 차단하세요:
+  1. 결핍·손실 회피형: "이거 모르면 2026년 하반기 땅을 치고 후회합니다", "절대 돈 빌려주면 안 되는 MBTI 사주 조합 1위"
+  2. 극단적 반전·공감형: "겉은 천사인데 속은 멘탈 박살난 MBTI 특징", "남들은 완벽해 보이지만 속은 곪아 터진 이유"
+  3. 경고·타겟 특정형: "주변에 이 MBTI 있으면 무조건 조심하세요", "올해 대운 들어오기 직전 나타나는 소름 돋는 징조"
+- 절대 금지: "오늘은 ~를 알아볼게요", "안녕하세요" 같은 지루한 설명형 인트로 절대 금지!
 
-[narration 작성 규칙 - 필수]
+[2단계: 본문 구성 및 인터랙션 트리거 - 씬 2~4 규칙]
+- 팩트 폭격 + 사주 명리학/MBTI 심리 분석을 빠르게 교차 전달 (~해요, ~거든요, ~랍니다 식의 리듬감 있는 말투).
+- 댓글·공유 유도 떡밥을 본문 중간에 자연스럽게 삽입 (예: "주변에 이런 친구 꼭 있죠?", "공감된다면 댓글로 남겨주세요").
+
+[3단계: 클로징 고전환 CTA 규칙 - 필수]
+- 영상의 맨 마지막 씬(마지막 scene)의 narration은 단순히 "운명을 확인하세요" 대신, 구체적인 혜택과 결핍을 자극하는 고전환 멘트를 작성합니다:
+  (기본 템플릿: "내 사주 오행과 MBTI 상세 분석표는 프로필 링크에서 바로 확인해보세요!" 또는 "나머지 순위와 내 대운 확인은 프로필 링크에 남겨뒀어요!")
+- 인스타그램 캡션(instagram_caption) 본문 끝에도 반드시 다음 문구를 포함하세요:
+  "👉 프로필 링크에서 내 사주와 MBTI 상세 분석표를 확인하세요!"
+
+[narration 작성 규칙 - 절대 엄수]
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. 오직 순수 한글(및 필요시 숫자)만 사용합니다.
-  (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)"""
+  (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)
+- 제목(title)은 공백 포함 16자 이내로 짧고 강렬하게 (화면에 큰 글씨로 2줄 표시)."""
+
+FIXED_SHORTFORM_CTA = "내 사주와 MBTI 상세 분석표는 프로필 링크에서 바로 확인해보세요!"
+FIXED_CAPTION_CTA = "👉 프로필 링크에서 내 사주와 MBTI 상세 분석표를 확인하세요!"
+
 
 
 DOMAIN_LABELS = {
@@ -84,6 +99,47 @@ def build_series_prompt(series: str, context: dict) -> str:
     return base
 
 
+DYNAMIC_SHORTFORM_CTAS = [
+    ("내 사주와 MBTI 상세 분석표는 프로필 링크에서 바로 확인해보세요!", "👉 프로필 링크에서 내 사주와 MBTI 상세 분석표를 확인하세요!"),
+    ("나머지 순위와 내 대운 확인은 프로필 링크에 남겨뒀어요!", "👉 프로필 링크에서 나머지 순위와 내 대운을 무료로 확인하세요!"),
+    ("더 자세한 내 사주 오행 진단은 프로필 링크에서 1초 만에 확인하세요!", "👉 프로필 링크에서 내 사주 오행 무료 진단표를 확인하세요!"),
+]
+
+
+def _enforce_shortform_cta(script: ReelsScript) -> ReelsScript:
+    """숏폼(릴스, 숏츠)의 마지막 씬 내레이션과 캡션에 고전환 CTA를 적용합니다."""
+    # 영상마다 자연스럽게 순환하는 고전환 CTA 멘트 적용
+    chosen_short_cta, chosen_caption_cta = random.choice(DYNAMIC_SHORTFORM_CTAS)
+
+    if script.scenes:
+        script.scenes[-1].narration = chosen_short_cta
+        if script.scenes[-1].duration_estimate < 3:
+            script.scenes[-1].duration_estimate = 4
+
+    # 기존 일반 멘트가 있다면 고전환 멘트로 교체
+    old_cta_pattern = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
+    if old_cta_pattern in script.instagram_caption:
+        script.instagram_caption = script.instagram_caption.replace(
+            f"👉 {old_cta_pattern}", chosen_caption_cta
+        ).replace(old_cta_pattern, chosen_caption_cta)
+    elif chosen_caption_cta not in script.instagram_caption:
+        if "#" in script.instagram_caption:
+            parts = script.instagram_caption.split("#", 1)
+            script.instagram_caption = f"{parts[0].strip()}\n\n{chosen_caption_cta}\n\n#{parts[1]}"
+        else:
+            script.instagram_caption = f"{script.instagram_caption.strip()}\n\n{chosen_caption_cta}"
+
+
+    # 오늘의 운세 관련 해시태그 정리
+    script.instagram_caption = script.instagram_caption.replace("#오늘의운세", "#운세").replace("#오늘운세", "#운세")
+
+    # 제목 줄바꿈 제거 및 길이 제한
+    script.title = script.title.replace("\n", " ").strip()
+    if len(script.title) > 16:
+        script.title = script.title[:16].strip()
+    return script
+
+
 def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model_name: Optional[str] = None) -> ReelsScript:
     from google.genai import types
     if context is None: context = {}
@@ -92,10 +148,11 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
     user_prompt = f"""인스타그램 릴스 대본 JSON을 작성하세요.
 시리즈: {series} | 컨텍스트: {json.dumps(context, ensure_ascii=False)}
 JSON 스키마:
-- title: 릴스 제목 (호기심 자극)
+- title: 릴스 제목 (16자 이내, 호기심 자극)
 - hook: 초반 3초 후킹 대사
 - scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문 가로 16:9 landscape cinematic no text], duration_estimate)
-- instagram_caption: 이모지 포함 + 해시태그 10개 이상"""
+  * 마지막 씬 narration은 반드시 "{FIXED_SHORTFORM_CTA}" 로 작성
+- instagram_caption: 이모지 포함 + "{FIXED_CAPTION_CTA}" 포함 + 해시태그 10개 이상"""
     try:
         client = get_gemini_client()
         response = client.models.generate_content(
@@ -107,20 +164,21 @@ JSON 스키마:
             ),
         )
         if hasattr(response, "parsed") and response.parsed is not None:
-            if isinstance(response.parsed, ReelsScript): return response.parsed
-            return ReelsScript.model_validate(response.parsed)
+            script = response.parsed if isinstance(response.parsed, ReelsScript) else ReelsScript.model_validate(response.parsed)
+            return _enforce_shortform_cta(script)
         raw = response.text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        return ReelsScript.model_validate(json.loads(raw))
+        script = ReelsScript.model_validate(json.loads(raw))
+        return _enforce_shortform_cta(script)
     except Exception as e:
         print(f"[WARNING] Gemini API 실패 ({e}). 폴백 대본 사용.")
-        return _fallback(series, context)
+        return _enforce_shortform_cta(_fallback(series, context))
 
 
 def _fallback(series: str, context: dict) -> ReelsScript:
     mbti = context.get("mbti", "ENFP")
     nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("활동가","열정","자유"))
     return ReelsScript(
-        title=f"{mbti} {nick}의 사주×MBTI 완전 분석",
+        title=f"{mbti} {nick}의 사주 심층분석"[:16],
         hook=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.",
         scenes=[
             Scene(scene_id=1, narration=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.", duration_estimate=4,
@@ -131,8 +189,8 @@ def _fallback(series: str, context: dict) -> ReelsScript:
                   visual_prompt="Horizontal 16:9 landscape ratio, person silhouette at crossroads with glowing energy paths, Korean traditional aesthetic, no text"),
             Scene(scene_id=4, narration="지금 당장 이 행동 하나만 바꿔 보세요.", duration_estimate=5,
                   visual_prompt="Horizontal 16:9 landscape ratio, close-up hands writing in journal, glowing ink, warm bokeh, cinematic, no text"),
-            Scene(scene_id=5, narration="도움이 됐다면 저장하고 팔로우해 두세요.", duration_estimate=4,
-                  visual_prompt="Horizontal 16:9 landscape ratio, glowing bookmark icon above smartphone, clean modern aesthetic, no text"),
+            Scene(scene_id=5, narration=FIXED_SHORTFORM_CTA, duration_estimate=4,
+                  visual_prompt="Horizontal 16:9 landscape ratio, smartphone screen displaying profile link with mystical glow, clean modern aesthetic, no text"),
         ],
-        instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n#{mbti} #MBTI운세 #사주 #운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
-    )
+        instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n{FIXED_CAPTION_CTA}\n\n#{mbti} #MBTI운세 #사주 #운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
+    )

@@ -124,11 +124,10 @@ def run_pipeline(
     )
     print(f"  ✅ 영상 렌더링 완료 ({time.time() - t0:.1f}초)")
 
-    # 프로필 그리드/릴스 커버용 프레임 (합성 전 16:9 원본 기반)
+    # 프로필 그리드/릴스 커버용 프레임 (이미지 없이 다크 배경에 제목만 정가운데)
     cover_path = None
     try:
-        raw_first = Path(image_paths[0]).with_name("scene_01_raw.jpg") if image_paths else None
-        cover_path = build_reel_cover(raw_first, script.title, Path(output_path).parent / "cover.jpg")
+        cover_path = build_reel_cover(None, script.title, Path(output_path).parent / "cover.jpg")
     except Exception as e:
         print(f"  ⚠️ 커버 프레임 생성 실패(무시): {e}")
 
@@ -289,28 +288,16 @@ def run_carousel_pipeline(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n[2/4] 🎨 표지 비주얼 생성 중 (16:9 -> 4:5 중앙 크롭)...")
-    cover_path = out_dir / "cover_source.jpg"
-    cover_ok = False
-    if not mock_images:
-        cover_ok = generate_with_gemini_nanobanana(script.cover_visual_prompt, cover_path)             or generate_with_pollinations_flux(script.cover_visual_prompt, cover_path)
-    if not cover_ok:
-        print("  ⚠️ 표지 이미지 생성 실패/건너뜀 -> 그라디언트 표지 사용")
-
-    print("\n[3/4] 🖌️ 슬라이드 렌더링 중...")
-    slide_paths = render_carousel(script, out_dir, cover_image=cover_path if cover_ok else None)
+    print("\n[2/3] 🖌️ 슬라이드 렌더링 중 (표지 이미지 생성 X, 제목 표지 적용)...")
+    slide_paths = render_carousel(script, out_dir, cover_image=None)
 
     caption_path = out_dir / "caption.txt"
     caption_path.write_text(script.instagram_caption, encoding="utf-8")
 
     insta_result = {}
     if publish_insta:
-        if not cover_ok and not mock_images and not _env_flag("ALLOW_PLACEHOLDER_PUBLISH"):
-            print("\n⛔ 표지 이미지 생성 실패 -> 인스타 자동 게시를 건너뜁니다.")
-            insta_result = {"skipped": True, "reason": "cover image generation failed"}
-        else:
-            print("\n[4/4] 📸 슬라이드 호스팅 및 Instagram 캐러셀 게시...")
-            urls = []
+        print("\n[3/3] 📸 슬라이드 호스팅 및 Instagram 캐러셀 게시...")
+        urls = []
             for sp in slide_paths:
                 up = media_host.upload_public(sp, kind="image", folder="carousel")
                 if not up.get("url"):
@@ -340,7 +327,7 @@ def run_carousel_pipeline(
         "script": script.model_dump(),
         "caption": script.instagram_caption,
         "instagram": insta_result,
-        "cover_generated": cover_ok,
+        "cover_generated": False,
     }
 
 

@@ -45,6 +45,9 @@ assets/output/*
 assets/subtitles/*
 !assets/subtitles/.gitkeep
 
+assets/bgm/*/*
+!assets/bgm/*/.gitkeep
+
 # OS files
 Thumbs.db
 ehthumbs.db

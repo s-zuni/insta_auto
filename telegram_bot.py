@@ -392,7 +392,7 @@ def _carousel_job(plan: dict, chat_id: str | int = None):
     try:
         tg_send(
             f"🖼 <b>[{html.escape(title)}]</b> 캐러셀 제작을 시작합니다!\n"
-            f"대본 → 표지 비주얼 → 슬라이드 렌더 → 호스팅 → Instagram 게시\n⏳ 약 1분 소요됩니다.",
+            f"대본 → 슬라이드 렌더(제목 표지) → 호스팅 → Instagram 게시\n⏳ 약 40초 소요됩니다.",
             chat_id=chat_id,
         )
         res = run_carousel_pipeline(

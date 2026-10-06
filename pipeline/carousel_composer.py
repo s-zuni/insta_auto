@@ -147,37 +147,23 @@ COVER_SLOGAN = "MBTIJU: MBTI와 사주가 만나다."
 
 
 def render_cover(headline: str, tag: str, cover_image: Optional[Path], out_path: Path, total: int) -> None:
-    """Figma MJ_1 디자인: 풀블리드 이미지 + 위→아래 검정 그라디언트(0→100%) + 브랜드/헤드라인/슬로건."""
-    img = _cover_crop(cover_image) if cover_image and cover_image.is_file() else Image.new("RGB", (W, H), (60, 60, 70))
-
-    # Rectangle 1: 세로 선형 그라디언트, 투명 -> 불투명 검정
-    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    for y in range(H):
-        od.line([(0, y), (W, y)], fill=(0, 0, 0, int(255 * y / (H - 1))))
-    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    """표지 슬라이드: 이미지 없이 다크 그라디언트 배경에 제목만 정가운데 배치."""
+    img = _gradient_bg()
     d = ImageDraw.Draw(img)
 
-    # 우상단 슬로건: Black 26px, 오른쪽 끝 x=1023, 줄 상자 top 60 / 높이 86
-    _draw_tracked(d, 1023, 60 + 43, COVER_SLOGAN, _weight_font("Black", 26), WHITE, -1.3, align="right")
+    clean_title = headline.replace("\r", "").replace("\n", " ").strip()
+    text_w = W - MARGIN_X * 2  # 좌우 여백 90px씩 확보 (900px)
 
-    # 브랜드: Black 48px, left 74, top 786 / 줄 높이 86
-    _draw_tracked(d, 74, 786 + 43, COVER_BRAND, _weight_font("Black", 48), WHITE, -2.4)
+    # 제목 폰트 크기 자동 조절 (88px부터 시작, 3~4줄 이내로 화면 중앙에 맞춤)
+    font, lines, line_h = _fit_lines(clean_title, text_w, 480, start=88, min_size=56, line_ratio=1.35)
+    total_h = len(lines) * line_h
+    start_y = (H - total_h) // 2
 
-    # 헤드라인: SemiBold 68px, left 60, top 850, 폭 996, 줄 높이 150, 자간 -3.4. 3줄을 넘으면 비례 축소
-    size = 68
-    while True:
-        f_head = _weight_font("SemiBold", size)
-        spacing = -size * 0.05
-        lines = _wrap_tracked(headline, f_head, 996, spacing)
-        if len(lines) <= 3 or size <= 52:
-            break
-        size -= 4
-    line_h = 150 * size / 68
-    for i, line in enumerate(lines[:3]):
-        _draw_tracked(d, 60, 850 + line_h * i + line_h / 2, line, f_head, WHITE, spacing)
+    # 제목 텍스트 그리기 (가로 중앙 W//2, 세로 중앙 start_y)
+    _draw_lines(d, lines, font, MARGIN_X, start_y, line_h, WHITE, center_x=W // 2)
 
     img.save(out_path, "JPEG", quality=95)
+
 
 
 def render_content(index: int, total: int, headline: str, body: str, out_path: Path, is_last: bool = False) -> None:
@@ -204,6 +190,22 @@ def render_content(index: int, total: int, headline: str, body: str, out_path: P
     img.save(out_path, "JPEG", quality=95)
 
 
+def render_last_slide(out_path: Path) -> bool:
+    """캐러셀 마지막 장: 고정 CTA 프로필 안내 이미지(assets/templates/carousel_cta.png)를 1080x1350으로 렌더링합니다."""
+    cta_path = PROJECT_ROOT / "assets" / "templates" / "carousel_cta.png"
+    if cta_path.is_file():
+        img = Image.open(cta_path).convert("RGBA")
+        canvas = Image.new("RGB", (W, H), (255, 255, 255))
+        scale = min(W / img.width, H / img.height)
+        nw, nh = int(img.width * scale), int(img.height * scale)
+        img_resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        ox, oy = (W - nw) // 2, (H - nh) // 2
+        canvas.paste(img_resized, (ox, oy), mask=img_resized.split()[3] if img_resized.mode == "RGBA" else None)
+        canvas.save(out_path, "JPEG", quality=95)
+        return True
+    return False
+
+
 def render_carousel(script, output_dir: str | Path, cover_image: Optional[str | Path] = None, tag: str = "MBTI x 사주 트렌드") -> List[str]:
     """CarouselScript를 슬라이드 JPEG 목록으로 렌더링하고 경로 리스트를 반환합니다."""
     out_dir = Path(output_dir)
@@ -218,8 +220,12 @@ def render_carousel(script, output_dir: str | Path, cover_image: Optional[str | 
         out = out_dir / f"slide_{i:02d}.jpg"
         if i == 1:
             render_cover(sl.headline, tag, Path(cover_image) if cover_image else None, out, total)
+        elif i == total:
+            # 마지막 장은 사용자가 지정한 고정 프로필 CTA 이미지로 렌더링
+            if not render_last_slide(out):
+                render_content(i, total, sl.headline, sl.body, out, is_last=True)
         else:
-            render_content(i, total, sl.headline, sl.body, out, is_last=(i == total))
+            render_content(i, total, sl.headline, sl.body, out, is_last=False)
         paths.append(str(out.resolve()))
         print(f"  ✅ 슬라이드 {i}/{total} 렌더 완료 -> {out.name}")
     return paths

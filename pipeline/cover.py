@@ -46,18 +46,18 @@ def build_reel_cover(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if raw_image and Path(raw_image).is_file():
-        img = Image.open(raw_image).convert("RGB")
-        scale = H / img.height
-        img = img.resize((max(int(img.width * scale), W), H), Image.Resampling.LANCZOS)
-        left = (img.width - W) // 2
-        img = img.crop((left, 0, left + W, H))
-        overlay = Image.new("RGBA", (W, H), (8, 8, 13, 150))
-        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    else:
-        img = Image.new("RGB", (W, H), (17, 18, 28))
-
+    # 사진을 사용하지 않고 다크 그라디언트 배경에 텍스트만 렌더링
+    BG_TOP = (17, 18, 28)
+    BG_BOTTOM = (8, 8, 13)
+    img = Image.new("RGB", (W, H), BG_TOP)
     d = ImageDraw.Draw(img)
+    for y_pos in range(H):
+        t = y_pos / H
+        r = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * t)
+        g = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * t)
+        b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
+        d.line([(0, y_pos), (W, y_pos)], fill=(r, g, b))
+
     clean = title.replace("\n", " ").strip()
 
     # 제목 폰트 크기: 기존 112에서 약 1.3배 증가한 146부터 시작

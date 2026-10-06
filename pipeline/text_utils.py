@@ -172,6 +172,23 @@ def build_karaoke_blocks(
         for i in range(0, len(wrapped), max_lines):
             blocks.append([line.split() for line in wrapped[i:i + max_lines]])
 
+HIGHLIGHT_KEYWORDS = {
+    "1위", "2위", "3위", "대박", "조심", "소름", "대운", "운세", "궁합", "후회", "비밀", "특징", "팩트",
+    "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+    "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"
+}
+
+
+def _colorize_token(word: str, kf_prefix: str = "") -> str:
+    """핵심 키워드(MBTI, 순위, 자극적 단어)에 골드/옐로우 컬러 코드를 부여합니다."""
+    clean_w = re.sub(r"[^\w가-힣A-Za-z]", "", word).upper()
+    is_highlight = clean_w in HIGHLIGHT_KEYWORDS or any(kw in clean_w for kw in ("1위", "대박", "소름", "조심", "대운"))
+    if is_highlight:
+        # 노란색(&H002BF7FF&) 액센트 부여 후 원래 흰색(&H00FFFFFF&)으로 복귀
+        return f"{kf_prefix}{{\\c&H002BF7FF&}}{word}{{\\c&H00FFFFFF&}}"
+    return f"{kf_prefix}{word}"
+
+
     out: List[Tuple[float, float, str]] = []
     wi = 0
     for bi, lines in enumerate(blocks):
@@ -193,7 +210,7 @@ def build_karaoke_blocks(
                 s = times[idxs[k]][0]
                 nxt = times[idxs[k + 1]][0] if k + 1 < len(idxs) else b_end
                 cs = max(int(round((nxt - s) * 100)), 1)
-                tokens.append("{\\kf" + str(cs) + "}" + w)
+                tokens.append(_colorize_token(w, f"{{\\kf{cs}}}"))
                 k += 1
             parts.append(" ".join(tokens))
         out.append((max(b_start - time_shift, 0.0), max(b_end - time_shift, 0.0), "\\N".join(parts)))
@@ -203,6 +220,8 @@ def build_karaoke_blocks(
         s, e, t = out[i]
         out[i] = (s, max(min(e, out[i + 1][0]), s + 0.05), t)
     return out
+
+
 
 
 def build_caption_chunks(
@@ -242,6 +261,15 @@ def build_caption_chunks(
             c_end = end_time
         else:
             c_end = cursor + duration * (w / total_weight)
-        chunks.append((cursor, c_end, block))
+
+        # 각 줄별 단어 단위로 하이라이트 색상 적용
+        colored_lines = []
+        for line in block.split("\\N"):
+            words = line.split()
+            colored_lines.append(" ".join(_colorize_token(wd) for wd in words))
+        c_text = "\\N".join(colored_lines)
+
+        chunks.append((cursor, c_end, c_text))
         cursor = c_end
     return chunks
+
