@@ -65,7 +65,7 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
   오탐(드라마의 "~를 사주하다", 인명 "하카세 타로" 등)을 줄이기 위함 — 검색어를 다시 단순화하면
   오탐이 늘어난다.
 - 도메인별 헤드라인이 하나도 안 잡히면 `FALLBACK_TOPICS`의 고정 시드로 대체.
-- `get_crawled_reels_proposals()`가 서로 다른 2개 도메인을 뽑아 Gemini로 A안/B안을 만든다.
+- `get_crawled_reels_proposals()`가 서로 다른 2개 도메인을 뽑아 LLM(Gemini→OpenAI 폴백)으로 A안/B안을 만든다.
   MBTI가 선택되면 `mbti` 필드에 랜덤 MBTI 유형이 채워지고, 나머지 도메인은 `topic`/`trend_hint`
   필드로 전달된다.
 - `main.py`의 `series` 선택지: `MBTI`, `DAILY`(오행, element 기반, 크롤러는 사용 안 함),
@@ -83,7 +83,7 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
 - `--mock-images`는 단색 그라디언트 플레이스홀더이므로 실제 비주얼 품질 판단에 쓰지 말 것.
 - 합성 로직(레이아웃/자막/전환)만 반복 검증할 때는 이미 생성된
   `assets/audio/timing_info.json` + `assets/images/scene_*.jpg`를 재사용해
-  `pipeline.composer.compose_reels_video()`를 직접 호출하면 Gemini/TTS/이미지 생성 API를
+  `pipeline.composer.compose_reels_video()`를 직접 호출하면 LLM/TTS/이미지 생성 API를
   다시 호출하지 않아도 되어 빠르다.
 
 ## 7. 단어 단위 자막 / BGM / 커버 / 캐러셀 (추가 스펙)

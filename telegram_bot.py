@@ -317,7 +317,7 @@ def _reels_job(plan: dict, chat_id: str | int = None):
     try:
         tg_send(
             f"🎬 <b>[{html.escape(title)}]</b> 제작을 시작합니다!\n\n"
-            f"1. 대본 기획 (Gemini 3.1 Flash-Lite)\n"
+            f"1. 대본 기획 (Gemini → OpenAI 폴백)\n"
             f"2. 한국어 음성 합성 (TTS)\n"
             f"3. 16:9 비주얼 생성 및 릴스 프레임 합성\n"
             f"4. Ken Burns + 자막 하드코딩 영상 합성 (FFmpeg)\n"

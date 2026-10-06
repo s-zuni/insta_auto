@@ -1,6 +1,6 @@
 # 🎬 인스타그램 릴스(Instagram Reels) 원클릭 자동 제작 파이프라인
 
-단일 Python 스크립트 실행으로 **"주제 입력 ➔ Gemini 대본 기획 ➔ TTS 음성 및 자막 싱크 생성 ➔ Imagen 3 9:16 비주얼 에셋 생성 ➔ FFmpeg Ken Burns & 자막 하드코딩 영상 합성"**까지 원스톱으로 처리하는 자동화 시스템입니다.
+단일 Python 스크립트 실행으로 **"주제 입력 ➔ LLM(Gemini→OpenAI 폴백) 대본 기획 ➔ TTS 음성 및 자막 싱크 생성 ➔ Imagen 3 9:16 비주얼 에셋 생성 ➔ FFmpeg Ken Burns & 자막 하드코딩 영상 합성"**까지 원스톱으로 처리하는 자동화 시스템입니다.
 
 ---
 
@@ -15,7 +15,7 @@ insta_auto/
 │
 ├── pipeline/             # 핵심 처리 모듈
 │   ├── __init__.py
-│   ├── script_gen.py     # Gemini Structured Outputs 기반 릴스 대본 생성
+│   ├── script_gen.py     # LLM JSON 출력(Gemini 우선, OpenAI 폴백) 기반 릴스 대본 생성
 │   ├── tts_engine.py     # Google Cloud TTS 및 타이밍/자막 싱크 추출
 │   ├── visual_gen.py     # Vertex AI Imagen 3 9:16 이미지 생성
 │   └── composer.py       # FFmpeg 기반 Ken Burns 효과 + ASS 자막 번인 영상 합성
@@ -52,7 +52,11 @@ insta_auto/
 
 `.env` 파일에 발급받은 키와 설정을 입력합니다:
 ```env
-# Google Gemini API Key (대본 기획용)
+# 텍스트 생성: LLM_PROVIDER(gemini|openai)를 먼저 시도하고 실패하면 다른 쪽으로 폴백
+LLM_PROVIDER=gemini
+OPENAI_API_KEY=sk-...
+
+# Google Gemini API Key (텍스트 + 이미지 생성용)
 GEMINI_API_KEY=AIzaSy...
 
 # Google Cloud & Vertex AI 설정 (Imagen 3 및 Cloud TTS용)
@@ -61,7 +65,8 @@ GOOGLE_APPLICATION_CREDENTIALS=path/to/service_account.json
 GCP_LOCATION=us-central1
 
 # 모델 및 음성 설정
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TEXT_MODEL=gemini-2.5-flash
+OPENAI_MODEL=gpt-4o-mini
 IMAGEN_MODEL=imagen-3.0-generate-002
 TTS_VOICE_NAME=ko-KR-Neural2-C
 TTS_SPEAKING_RATE=1.05

@@ -17,10 +17,11 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from pipeline.script_gen import get_gemini_client
-from pipeline.mbti_saju_content import MBTI_KEYWORDS, FIVE_ELEMENTS, DOMAIN_LABELS
+from pipeline.script_gen import generate_json
+from pipeline.mbti_saju_content import MBTI_KEYWORDS, FIVE_ELEMENTS, DOMAIN_LABELS, MBTI_TYPES
+from pipeline.saju_knowledge import STEMS, ELEMENT_FLOW, detect_stem, stem_brief, general_brief
 
-MIN_SLIDES, MAX_SLIDES = 5, 8
+MIN_SLIDES, MAX_SLIDES = 6, 8
 
 
 class CarouselSlide(BaseModel):
@@ -45,44 +46,72 @@ class CarouselScript(BaseModel):
 
 
 CAROUSEL_PERSONA = """[캐러셀 작가 페르소나]
-당신은 대한민국 MZ세대 여성(20~30대)을 위한 인스타그램 캐러셀(카드뉴스) 전문 작가입니다.
-사주 명리학 + MBTI 심리를 융합해 '저장하고 싶어지는' 정보형 슬라이드를 만듭니다.
+당신은 사주명리학을 깊이 공부한 MZ세대 여성(20~30대) 타깃 인스타그램 캐러셀(카드뉴스) 전문 작가입니다.
+십천간·십신·오행 상생상극·합충을 근거로 '저장하고 싶어지는' 정보형 슬라이드를 만듭니다.
 
 [구성 규칙]
-- 슬라이드 5~8장. 1장=표지(스크롤을 멈추게 하는 훅), 2장~마지막 전 장=가치 슬라이드, 마지막 장=저장/팔로우 CTA.
-- 가장 가치 있는 정보는 앞쪽 슬라이드에 배치합니다(끝까지 안 넘겨도 얻는 게 있어야 함).
-- 슬라이드마다 headline 한 문장 + body 1~3문장. 한 슬라이드에 하나의 메시지만 담습니다.
-- 구체적인 숫자/상황/행동 팁을 형용사보다 우선합니다. 군더더기와 AI 말투(과한 대시, 상투적 마무리)는 피합니다.
-- 팩트 중심의 날카로운 어조의 MZ 구어체. 이모지는 슬라이드당 최대 1개.
-- 캡션은 첫 125자 안에 훅을 넣고, 해시태그는 3~5개만 사용합니다."""
+- 슬라이드 6~8장. 1장=표지(스크롤을 멈추게 하는 훅), 2장~마지막 전 장=가치 슬라이드, 마지막 장=저장/팔로우 CTA.
+- 가장 가치 있는 정보는 앞쪽에 배치(끝까지 안 넘겨도 얻는 게 있어야 함).
+- 슬라이드마다 headline 한 문장 + body 2~3문장(90자 이내). 한 슬라이드에 하나의 메시지만 담습니다.
+- 슬라이드 흐름 권장: 표지 훅 → 이 기운의 정체(자연물 비유) → 강점 → 연애/관계에서 드러나는 모습(구체적 장면) →
+  약점·갈등 패턴 → 잘 맞는/조심할 상대(천간 합·충 근거) → 오늘 바로 할 행동 → CTA.
+
+[전문성 규칙 - 매우 중요]
+- 반드시 사주 용어를 구체적으로 사용하세요: 천간(갑을병정무기경신임계), 오행 상생·상극, 천간합·충, 십신(비견·식신·정재 등).
+  단순히 "오행이 강하다/기운이 쏠린다" 같은 모호한 문장은 금지입니다.
+- 모든 주장에는 근거 비유를 붙입니다. (예: "을목은 덩굴이라 혼자 서기보다 감고 올라갈 곳을 찾아요")
+- 성격 설명은 추상 형용사 대신 "이럴 때 이렇게 행동한다" 식의 구체적 장면/대사/숫자로 씁니다.
+- 어느 유형에나 해당되는 뻔한 말(바넘 효과)과 "~하는 경우가 많아요" 반복을 피하고, 이 주제만의 차별점을 쓰세요.
+- 슬라이드 텍스트에는 한자를 쓰지 않고 한글로만 표기합니다(렌더링 폰트 보호).
+- MZ 구어체, 날카롭고 팩트 중심. 이모지는 슬라이드당 최대 1개. 군더더기와 AI 말투(과한 대시, 상투적 마무리) 금지.
+- 캡션은 첫 125자 안에 훅, 해시태그는 3~5개만 사용합니다."""
+
+
+def _topic_block(context: dict) -> str:
+    if not context.get("topic"):
+        return ""
+    return f"\n[구체적 주제 - 반드시 이 주제를 중심으로]\n{context['topic']}"
 
 
 def _series_brief(series: str, context: dict) -> str:
+    topic = context.get("topic", "")
+    stem = detect_stem(topic)
+    if stem:
+        # 천간 주제는 시리즈와 무관하게 사주 풀이로 작성 (MBTI 기본값이 새어 들어가지 않도록)
+        brief = (
+            f"[사주 천간 시리즈: {stem}]{_topic_block(context)}\n\n{stem_brief(stem)}\n\n"
+            "위 사전을 근거로 하되 그대로 복붙하지 말고 주제 맥락(예: 연애/직장)에 맞게 재구성하세요.\n\n"
+            f"[참고: 오행 흐름]\n{ELEMENT_FLOW}"
+        )
+        mbti_in_topic = next((m for m in MBTI_TYPES if m in topic.upper()), None)
+        if mbti_in_topic:
+            brief += f"\nMBTI {mbti_in_topic}({MBTI_KEYWORDS[mbti_in_topic][0]})와의 교차 포인트도 한 장 포함하세요."
+        return brief
     if series == "MBTI":
         mbti = context.get("mbti", "INFP")
         nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("", "", ""))
-        brief = f"[MBTI 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}\n사주 오행/십신 진단과 MBTI 심리를 교차 분석하고 솔루션으로 마무리"
-        if context.get("topic"):
-            brief += f"\n[구체적 주제 - 반드시 이 주제를 중심으로]\n{context['topic']}"
-        return brief
+        return (
+            f"[MBTI×사주 시리즈: {mbti} ({nick})]\n핵심: {t1}, {t2}{_topic_block(context)}\n"
+            "MBTI 성향을 어울리는 천간·십신(예: 식신/상관=표현력, 정관=책임감)과 매칭해 교차 분석하고 솔루션으로 마무리\n\n"
+            + general_brief()
+        )
     if series in ("DAILY", "ELEMENT"):
         el = context.get("element", "목(木)")
         info = FIVE_ELEMENTS.get(el, {})
-        brief = f"[오늘의 오행 운세: {el.split('(')[0]}]\n색상: {info.get('color', '')} | 기운: {info.get('booster', '')}\n오행 본질 → 실생활 팁"
-        if context.get("topic"):
-            brief += f"\n[구체적 주제 - 반드시 이 주제를 중심으로]\n{context['topic']}"
-        return brief
-    if series in DOMAIN_LABELS:
-        label = DOMAIN_LABELS[series]
-        return f"[{label} 시리즈]\n주제: {context.get('topic', f'{label} 특성 TOP 랭킹')}\n{label} 핵심 포인트 해석 → 현실 조언"
-    return f"주제: {context.get('topic', '운세 캐러셀')}"
+        return (
+            f"[오늘의 오행 운세: {el.split('(')[0]}]\n색상: {info.get('color', '')} | 기운: {info.get('booster', '')}{_topic_block(context)}\n"
+            "해당 오행에 속한 두 천간(양/음)의 차이까지 설명 → 상생·상극 관계로 오늘의 실생활 팁\n\n"
+            + general_brief()
+        )
+    label = DOMAIN_LABELS.get(series)
+    if label:
+        extra = ("\n\n" + general_brief()) if series == "SAJU" else ""
+        return f"[{label} 시리즈]\n주제: {topic or f'{label} 특성 TOP 랭킹'}\n{label} 핵심 포인트 해석 → 현실 조언{extra}"
+    return f"주제: {topic or '운세 캐러셀'}\n\n{general_brief()}"
 
 
 def generate_carousel_script(series: str, context: Optional[dict] = None, model_name: Optional[str] = None) -> CarouselScript:
-    from google.genai import types
-
     context = context or {}
-    model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
     system_prompt = f"{CAROUSEL_PERSONA}\n\n{_series_brief(series, context)}"
     trend_hint = str(context.get("trend_hint", "")).strip()
@@ -99,27 +128,20 @@ def generate_carousel_script(series: str, context: Optional[dict] = None, model_
 
     user_prompt = f"인스타그램 캐러셀 JSON을 작성하세요.\n시리즈: {series} | 컨텍스트: {json.dumps(context, ensure_ascii=False)}"
 
-    try:
-        client = get_gemini_client()
-        response = client.models.generate_content(
-            model=model_name,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                response_schema=CarouselScript,
-                temperature=0.8,
-            ),
-        )
-        if getattr(response, "parsed", None) is not None:
-            script = response.parsed if isinstance(response.parsed, CarouselScript) else CarouselScript.model_validate(response.parsed)
-        else:
-            raw = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-            script = CarouselScript.model_validate(json.loads(raw))
-        return _normalize(script)
-    except Exception as e:
-        print(f"[WARNING] 캐러셀 대본 생성 실패 ({e}). 폴백 대본 사용.")
-        return _fallback(series, context)
+    last_err = None
+    for attempt in (1, 2):
+        try:
+            return _call_llm(model_name, system_prompt, user_prompt)
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] 캐러셀 대본 생성 시도 {attempt}/2 실패: {e}")
+    print(f"[WARNING] 캐러셀 대본 생성 실패 ({last_err}). 폴백 대본 사용.")
+    return _fallback(series, context)
+
+
+def _call_llm(model_name: Optional[str], system_prompt: str, user_prompt: str) -> CarouselScript:
+    script = generate_json(system_prompt, user_prompt, CarouselScript, temperature=0.8, model_name=model_name)
+    return _normalize(script)
 
 
 def _normalize(script: CarouselScript) -> CarouselScript:
@@ -130,7 +152,30 @@ def _normalize(script: CarouselScript) -> CarouselScript:
     return script
 
 
+def _stem_fallback(stem: str, topic: str) -> CarouselScript:
+    s = STEMS[stem]
+    first = lambda t: t.split(",")[0].split("/")[0].strip()
+    return CarouselScript(
+        title=f"{topic}, 알고 보면 이런 사람",
+        cover_visual_prompt="Horizontal 16:9 landscape, mystical glowing constellations over ancient Korean fortune book, candlelight, cinematic, no text, no letters, no watermark",
+        slides=[
+            CarouselSlide(headline=f"{topic}, 진짜 속마음은 따로 있다", body=""),
+            CarouselSlide(headline=f"{stem}, {first(s['image'])}", body=f"{s['yy']}{s['el']} 기운. {s['core']}이에요."),
+            CarouselSlide(headline="이게 매력 포인트", body=s["strength"]),
+            CarouselSlide(headline="연애할 때 이런 모습", body=s["love"]),
+            CarouselSlide(headline="약점도 알아야 해요", body=s["weak"]),
+            CarouselSlide(headline="궁합: 잘 맞는 기운", body=f"{s['match'].split(' / ')[0]} 조심할 조합은 {s['caution'].split(':')[0].split(' / ')[0]}."),
+            CarouselSlide(headline="오늘 바로 할 행동 하나", body=s["tip"]),
+            CarouselSlide(headline="저장해두고 다시 보기", body="도움이 됐다면 저장하고 팔로우해 주세요. 매일 새로운 사주 포인트를 알려드려요."),
+        ],
+        instagram_caption=f"{topic}, 겉으로 보이는 모습과 속마음은 달라요. 천간으로 풀어본 연애 패턴, 저장해두고 꺼내 보세요.\n\n#{stem} #사주 #천간 #일간 #연애운세",
+    )
+
+
 def _fallback(series: str, context: dict) -> CarouselScript:
+    stem = detect_stem(context.get("topic", ""))
+    if stem:
+        return _stem_fallback(stem, context["topic"])
     mbti = context.get("mbti", "ENFP")
     nick, t1, t2 = MBTI_KEYWORDS.get(mbti, ("활동가", "열정", "자유"))
     topic = context.get("topic") or f"{mbti} {nick}"

@@ -62,7 +62,7 @@ def run_pipeline(
         raise RuntimeError("FFmpeg가 준비되지 않았습니다. 설치를 완료한 후 다시 시도하세요.")
 
     # 1. 대본 기획
-    print("\n[1/7] 🧠 릴스/숏츠 대본 기획 중 (Gemini)...")
+    print("\n[1/7] 🧠 릴스/숏츠 대본 기획 중 (LLM)...")
     t0 = time.time()
     try:
         if mock_script:
@@ -281,7 +281,7 @@ def run_carousel_pipeline(
     if trend_hint:
         ctx["trend_hint"] = trend_hint
 
-    print("\n[1/4] 🧠 캐러셀 대본 기획 중 (Gemini)...")
+    print("\n[1/4] 🧠 캐러셀 대본 기획 중 (LLM)...")
     script = generate_carousel_script(series=series, context=ctx)
     print(f"  ✅ {script.title} | 슬라이드 {len(script.slides)}장")
 
@@ -349,7 +349,7 @@ def main():
     parser.add_argument("--trend-hint", type=str, default="",
                         help="대본에 자연스럽게 녹여낼 실시간 트렌드 헤드라인 (크롤러 연동용)")
     parser.add_argument("--mock-script", action="store_true",
-                        help="Gemini API 없이 샘플 대본으로 테스트")
+                        help="LLM API 없이 샘플 대본으로 테스트")
     parser.add_argument("--mock-images", action="store_true",
                         help="Imagen 3 대신 플레이스홀더로 테스트")
     parser.add_argument("--no-gdrive", action="store_true",

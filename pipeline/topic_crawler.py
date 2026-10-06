@@ -106,8 +106,7 @@ def get_crawled_reels_proposals() -> Dict[str, Any]:
     (범용 핫이슈를 억지로 MBTI/사주 틀에 끼워 맞추던 기존 방식과 달리, 애초에 운세 콘텐츠와
     직접 관련된 실시간 화제만 대상으로 합니다.)
     """
-    from pipeline.script_gen import get_gemini_client
-    from google.genai import types
+    from pipeline.script_gen import generate_json
 
     crawled = get_crawled_fortune_topics()
     for series, seeds in FALLBACK_TOPICS.items():
@@ -156,34 +155,14 @@ JSON 포맷 예시:
 }}
 """
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-    client = get_gemini_client()
-
     try:
-        res = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.8,
-            )
-        )
-        raw_text = res.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.startswith("```"):
-            raw_text = raw_text[3:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-
-        import json
-        data = json.loads(raw_text.strip())
+        data = generate_json(None, prompt, temperature=0.8)
         if "option_a" in data and "option_b" in data:
             return data
     except Exception as e:
-        print(f"[CRAWLER][WARN] Gemini 크롤링 기획안 생성 에러: {e}")
+        print(f"[CRAWLER][WARN] OpenAI 크롤링 기획안 생성 에러: {e}")
 
-    # Fallback: Gemini 호출 실패 시 크롤링된 헤드라인을 그대로 주제로 사용
+    # Fallback: LLM 호출 실패 시 크롤링된 헤드라인을 그대로 주제로 사용
     return {
         "option_a": {
             "series": series_a, "mbti": mbti_a, "topic": topic_a, "trend_hint": topic_a,

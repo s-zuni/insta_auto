@@ -24,7 +24,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from pipeline.script_gen import get_gemini_client
+from pipeline.script_gen import generate_json, get_llm_model
 from pipeline.mbti_saju_content import MBTI_KEYWORDS
 
 MAX_LEN = 480  # API 한도 500자에 여유
@@ -204,14 +204,12 @@ def generate_threads_thread(
     today: Optional[datetime.date] = None,
 ) -> GeneratedThread:
     """category: '사주'|'MBTI'|'운세' (None이면 60/20/20 가중 무작위). slot: morning|afternoon|evening."""
-    from google.genai import types
-
     category = category if category in CATEGORY_WEIGHTS else pick_category()
     fmt = random.choice(CATEGORY_FORMATS[category])
-    # 글 품질이 중요하고 하루 3편뿐이라 상위 모델을 우선 쓰고, 실패하면 기본 모델로 대체
+    # THREADS_OPENAI_MODEL로 스레드 전용 모델을 지정할 수 있고, 실패하면 기본 모델로 대체
     models = [m for m in dict.fromkeys([
-        model_name or os.getenv("THREADS_GEMINI_MODEL", DEFAULT_THREADS_MODEL),
-        os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+        model_name or os.getenv("THREADS_OPENAI_MODEL") or get_llm_model(),
+        get_llm_model(),
     ]) if m]
     model_idx = 0
 
@@ -231,24 +229,10 @@ def generate_threads_thread(
         user_prompt += f"\n\n[최근 올린 글 - 주제/항목/문장 겹치지 않게]\n{joined}"
 
     thread: Optional[ThreadsThread] = None
-    client = get_gemini_client()
     for attempt in range(3):
         try:
-            response = client.models.generate_content(
-                model=models[model_idx],
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    response_mime_type="application/json",
-                    response_schema=ThreadsThread,
-                    temperature=0.95,
-                ),
-            )
-            if getattr(response, "parsed", None) is not None:
-                cand = response.parsed if isinstance(response.parsed, ThreadsThread) else ThreadsThread.model_validate(response.parsed)
-            else:
-                raw = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                cand = ThreadsThread.model_validate(json.loads(raw))
+            cand = generate_json(system_prompt, user_prompt, ThreadsThread,
+                                 temperature=0.95, model_name=models[model_idx])
         except Exception as e:
             print(f"[WARNING] Threads 타래 생성 실패 (모델 {models[model_idx]}, 시도 {attempt + 1}/3): {e}")
             model_idx = min(model_idx + 1, len(models) - 1)

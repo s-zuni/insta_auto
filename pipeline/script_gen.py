@@ -1,5 +1,5 @@
 """
-Instagram Reels Script Generation Module using Gemini Structured Outputs.
+Instagram Reels Script Generation Module using LLM JSON output (Gemini free tier first, OpenAI gpt-4o-mini fallback).
 """
 import os
 import json
@@ -82,6 +82,103 @@ def get_gemini_client():
     return genai.Client()
 
 
+DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_GEMINI_TEXT_MODEL = "gemini-2.5-flash"
+
+
+def get_llm_model(model_name: Optional[str] = None) -> str:
+    """텍스트 생성에 쓸 OpenAI 모델명 (인자 > OPENAI_MODEL 환경변수 > gpt-4o-mini)."""
+    return model_name or os.getenv("OPENAI_MODEL") or DEFAULT_LLM_MODEL
+
+
+def get_openai_client():
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
+    return OpenAI(api_key=api_key)
+
+
+def _llm_providers() -> List[str]:
+    """LLM_PROVIDER(gemini|openai)를 1순위로, 나머지를 폴백으로 둔 호출 순서."""
+    first = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    first = first if first in ("gemini", "openai") else "gemini"
+    return [first, "openai" if first == "gemini" else "gemini"]
+
+
+def _parse_json_text(raw: str):
+    raw = (raw or "").strip()
+    raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    return json.loads(raw)
+
+
+def _generate_json_openai(system_prompt, user_prompt, schema, temperature, model_name):
+    client = get_openai_client()
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+    model = get_llm_model(model_name if model_name and not model_name.startswith("gemini") else None)
+
+    if schema is not None:
+        # json_object 모드는 프롬프트에 'JSON' 언급과 스키마 안내가 있어야 안정적입니다.
+        messages[-1]["content"] += (
+            "\n\n반드시 아래 JSON 스키마를 따르는 JSON 객체만 출력하세요:\n"
+            + json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        )
+    elif not any("json" in m["content"].lower() for m in messages):
+        messages[-1]["content"] += "\n\nJSON 객체만 출력하세요."
+
+    res = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        response_format={"type": "json_object"},
+    )
+    return _parse_json_text(res.choices[0].message.content)
+
+
+def _generate_json_gemini(system_prompt, user_prompt, schema, temperature, model_name):
+    from google.genai import types
+
+    client = get_gemini_client()
+    model = model_name if model_name and model_name.startswith("gemini") else (
+        os.getenv("GEMINI_TEXT_MODEL") or DEFAULT_GEMINI_TEXT_MODEL
+    )
+    config = {"response_mime_type": "application/json", "temperature": temperature}
+    if system_prompt:
+        config["system_instruction"] = system_prompt
+    if schema is not None:
+        config["response_schema"] = schema
+    response = client.models.generate_content(
+        model=model, contents=user_prompt, config=types.GenerateContentConfig(**config)
+    )
+    parsed = getattr(response, "parsed", None)
+    if schema is not None and parsed is not None:
+        return parsed if isinstance(parsed, schema) else schema.model_validate(parsed)
+    return _parse_json_text(response.text)
+
+
+def generate_json(system_prompt: Optional[str], user_prompt: str, schema=None,
+                  temperature: float = 0.7, model_name: Optional[str] = None):
+    """
+    LLM으로 JSON 응답을 생성합니다. LLM_PROVIDER(기본 gemini)를 먼저 시도하고,
+    실패(무료 한도 초과 등)하면 다른 프로바이더로 자동 폴백합니다.
+    schema(pydantic 모델)가 있으면 검증된 인스턴스를, 없으면 dict를 반환합니다.
+    """
+    runners = {"gemini": _generate_json_gemini, "openai": _generate_json_openai}
+    last_err = None
+    for provider in _llm_providers():
+        try:
+            data = runners[provider](system_prompt, user_prompt, schema, temperature, model_name)
+            return schema.model_validate(data) if schema is not None and isinstance(data, dict) else data
+        except Exception as e:
+            last_err = e
+            print(f"[LLM][WARN] {provider} 호출 실패, 다음 프로바이더 시도: {str(e)[:200]}")
+    raise RuntimeError(f"모든 LLM 프로바이더 호출 실패: {last_err}")
+
+
 SYSTEM_PROMPT = """
 당신은 인스타그램 릴스(Reels) 전문 숏폼 바이럴 디렉터이자 카피라이터입니다.
 주어진 주제를 바탕으로 초반 1.5초 이탈을 원천 차단하고 시청 지속 시간(완독율)과 저장/공유를 극대화하는 30~45초 분량의 9:16 세로 릴스 대본을 기획하세요.
@@ -111,25 +208,9 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
     """
     주제(topic)를 받아 Gemini를 통해 구조화된 ReelsScript 객체를 반환합니다.
     """
-    from google.genai import types
-
-    if not model_name:
-        model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-
-    client = get_gemini_client()
-
     prompt = f"다음 주제에 대해 인스타그램 릴스 대본을 기획해주세요:\n\n주제: {topic}"
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            response_mime_type="application/json",
-            response_schema=ReelsScript,
-            temperature=0.7,
-        ),
-    )
+    script = generate_json(SYSTEM_PROMPT, prompt, ReelsScript, temperature=0.7, model_name=model_name)
 
     def _enforce_cta(sc: ReelsScript) -> ReelsScript:
         fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
@@ -149,23 +230,7 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
             sc.title = sc.title[:16].strip()
         return sc
 
-    if hasattr(response, "parsed") and response.parsed is not None:
-        if isinstance(response.parsed, ReelsScript):
-            return _enforce_cta(response.parsed)
-        return _enforce_cta(ReelsScript.model_validate(response.parsed))
-
-    # 텍스트 응답에서 JSON 파싱
-    raw_text = response.text.strip()
-    # 마크다운 코드 블록 제거
-    if raw_text.startswith("```json"):
-        raw_text = raw_text[7:]
-    if raw_text.startswith("```"):
-        raw_text = raw_text[3:]
-    if raw_text.endswith("```"):
-        raw_text = raw_text[:-3]
-
-    data = json.loads(raw_text.strip())
-    return _enforce_cta(ReelsScript.model_validate(data))
+    return _enforce_cta(script)
 
 
 def create_sample_script(topic: str) -> ReelsScript:

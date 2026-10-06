@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from pipeline.script_gen import ReelsScript, Scene, get_gemini_client
+from pipeline.script_gen import ReelsScript, Scene, generate_json
 
 MBTI_TYPES = ["INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"]
 MBTI_KEYWORDS = {
@@ -141,9 +141,7 @@ def _enforce_shortform_cta(script: ReelsScript) -> ReelsScript:
 
 
 def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model_name: Optional[str] = None) -> ReelsScript:
-    from google.genai import types
     if context is None: context = {}
-    if model_name is None: model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
     system_prompt = build_series_prompt(series, context)
     user_prompt = f"""인스타그램 릴스 대본 JSON을 작성하세요.
 시리즈: {series} | 컨텍스트: {json.dumps(context, ensure_ascii=False)}
@@ -154,23 +152,10 @@ JSON 스키마:
   * 마지막 씬 narration은 반드시 "{FIXED_SHORTFORM_CTA}" 로 작성
 - instagram_caption: 이모지 포함 + "{FIXED_CAPTION_CTA}" 포함 + 해시태그 10개 이상"""
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(
-            model=model_name, contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                response_schema=ReelsScript, temperature=0.8,
-            ),
-        )
-        if hasattr(response, "parsed") and response.parsed is not None:
-            script = response.parsed if isinstance(response.parsed, ReelsScript) else ReelsScript.model_validate(response.parsed)
-            return _enforce_shortform_cta(script)
-        raw = response.text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        script = ReelsScript.model_validate(json.loads(raw))
+        script = generate_json(system_prompt, user_prompt, ReelsScript, temperature=0.8, model_name=model_name)
         return _enforce_shortform_cta(script)
     except Exception as e:
-        print(f"[WARNING] Gemini API 실패 ({e}). 폴백 대본 사용.")
+        print(f"[WARNING] OpenAI API 실패 ({e}). 폴백 대본 사용.")
         return _enforce_shortform_cta(_fallback(series, context))
 
 

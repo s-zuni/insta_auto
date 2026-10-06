@@ -14,7 +14,7 @@ MBTI×사주 인스타그램 릴스/유튜브 숏츠 자동 생성 파이프라�
 
 ```
 main.py run_pipeline()
-  1. script_gen.py / mbti_saju_content.py  → Gemini 대본(JSON, ReelsScript)
+  1. script_gen.py / mbti_saju_content.py  → LLM 대본(JSON, ReelsScript; Gemini 무료 티어 우선, 실패 시 OpenAI gpt-4o-mini 폴백 — script_gen.generate_json)
   2. text_utils.sanitize_narration()        → 나레이션 한자 제거 (TTS 중복 발음 방지)
   3. tts_engine.py                          → TTS 음성 + 씬별 word_timings
   4. visual_gen.py                          → 16:9 이미지 생성 + compose_reels_frame()으로
@@ -43,7 +43,7 @@ main.py run_pipeline()
 
 ## 테스트 팁
 
-- Gemini/TTS/이미지 생성을 다시 호출하지 않고 합성 로직만 빠르게 반복 검증하려면
+- LLM/TTS/이미지 생성을 다시 호출하지 않고 합성 로직만 빠르게 반복 검증하려면
   `assets/audio/timing_info.json`과 `assets/images/scene_*.jpg`가 이미 있는 상태에서
   `pipeline.composer.compose_reels_video()`를 직접 호출하세요 (스크립트/TTS/이미지 재생성 생략).
 - `--mock-images`는 단색 그라디언트 플레이스홀더를 만듭니다. 실제 비주얼 품질을 판단할 때는
