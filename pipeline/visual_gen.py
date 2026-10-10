@@ -121,6 +121,16 @@ def compose_reels_frame(
         print(f"  [WARN] 프레임 합성 중 오류 발생: {e}")
 
 
+# 실제 사람이 찍은 스마트폰 사진처럼 보이게 하는 공통 스타일 (AI 특유의 매끈한 가상 인물/시네마틱 보정 억제)
+REALISM_SUFFIX = (
+    "Candid photo taken on a smartphone by a real person, authentic Korean everyday scene, "
+    "natural available light, realistic skin texture with pores and slight imperfections, "
+    "ordinary un-retouched look, slight film grain, shallow but natural depth of field, "
+    "not a studio shot, not CGI, not 3D render, not illustration, no airbrushed or doll-like face, "
+    "Horizontal 16:9 landscape aspect ratio, no text, no letters, no watermark, no logo."
+)
+
+
 def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int = 2) -> bool:
     """Gemini 2.5 Flash Image ("나노바나나") 모델로 16:9 가로형 초고화질 이미지를 생성합니다."""
     api_key = os.getenv("GEMINI_API_KEY", "")
@@ -130,9 +140,7 @@ def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int
     model_name = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     clean_prompt = prompt.replace("\n", " ").strip()
     enhanced_prompt = (
-        f"{clean_prompt}. Horizontal 16:9 landscape aspect ratio, ultra-high resolution, "
-        "photorealistic, cinematic lighting, sharp focus, rich detail, no text, no letters, "
-        "no watermark, no logo, no subtitles baked into the image."
+        f"{clean_prompt}. {REALISM_SUFFIX}"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -187,7 +195,7 @@ def generate_with_pollinations_flux(prompt: str, output_path: Path, retries: int
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clean_prompt = prompt.replace("\n", " ").strip()
-    enhanced_prompt = f"{clean_prompt}, cinematic aesthetic, mystical mood, 8k resolution, landscape 16:9 ratio, hyperrealistic"
+    enhanced_prompt = f"{clean_prompt}. {REALISM_SUFFIX}"
     encoded = requests.utils.quote(enhanced_prompt)
     url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=608&nologo=true&model=flux"
 
@@ -220,9 +228,7 @@ def generate_with_vertex_imagen(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clean_prompt = prompt.replace("\n", " ").strip()
     enhanced_prompt = (
-        f"{clean_prompt}. Horizontal 16:9 landscape aspect ratio, ultra-high resolution, "
-        "photorealistic, cinematic lighting, sharp focus, rich detail, no text, no letters, "
-        "no watermark, no logo, no subtitles baked into the image."
+        f"{clean_prompt}. {REALISM_SUFFIX}"
     )
 
     for attempt in range(1, retries + 1):

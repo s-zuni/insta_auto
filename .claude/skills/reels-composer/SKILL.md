@@ -55,28 +55,13 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
   (`merge_clips_with_crossfade`). 크로스페이드가 실패하면(짧은 클립 등) 자동으로 기존 하드컷
   concat 방식(`_concat_copy_merge`)으로 안전하게 대체됨 — 이 폴백을 제거하지 말 것.
 
-## 5. 운세 도메인 크롤링 (`pipeline/topic_crawler.py`)
+## 5. 주제 기획 (`pipeline/topic_planner.py`) — 크롤링 폐기
 
-- 크롤링은 **막연한 범용 핫이슈가 아니라 운세 콘텐츠 도메인으로 한정**한다. 이것은 사용자가
-  명시적으로 요구한 제약이며, 이전 구현(구글 뉴스/트렌드 전체를 긁어와 억지로 MBTI/오행 틀에
-  끼워 맞추는 방식)은 의도적으로 폐기되었다.
-- `FORTUNE_DOMAINS`: `사주 운세`→`SAJU`, `MBTI 운세`→`MBTI`, `신점`→`SHINJEOM`,
-  `자미두수`→`JAMIDOSU`, `타로 카드 운세`→`TAROT`. 검색어에 "운세/카드"를 덧붙인 것은 동음이의어
-  오탐(드라마의 "~를 사주하다", 인명 "하카세 타로" 등)을 줄이기 위함 — 검색어를 다시 단순화하면
-  오탐이 늘어난다.
-- 도메인별 헤드라인이 하나도 안 잡히면 `FALLBACK_TOPICS`의 고정 시드로 대체.
-- `get_crawled_reels_proposals()`가 서로 다른 2개 도메인을 뽑아 LLM(Gemini→OpenAI 폴백)으로 A안/B안을 만든다.
-  MBTI가 선택되면 `mbti` 필드에 랜덤 MBTI 유형이 채워지고, 나머지 도메인은 `topic`/`trend_hint`
-  필드로 전달된다.
-- `main.py`의 `series` 선택지: `MBTI`, `DAILY`(오행, element 기반, 크롤러는 사용 안 함),
-  `SAJU`/`SHINJEOM`/`JAMIDOSU`/`TAROT`(topic 기반), `LOVE`/`CAREER`(topic 기반, 레거시),
-  `GENERAL`(크롤링/시리즈 프레임 없이 자유 주제). `mbti_saju_content.build_series_prompt()`의
-  `context.get("trend_hint")`는 모든 series 공통으로 프롬프트 끝에 부착되어 실시간 화제를
-  자연스럽게 반영하도록 유도한다.
-- 텔레그램 봇(`telegram_bot.py :: generate_and_send_proposals`)은 이제 랜덤 MBTI/오행을 직접
-  뽑지 않고 반드시 `topic_crawler.get_crawled_reels_proposals()`를 통해서만 기획안을 만든다.
-  `state.db`의 `pending_proposals` 테이블에 `topic`/`trend_hint` 컬럼이 추가되어 있다(마이그레이션
-  은 `init_db()`에서 `ALTER TABLE`로 자동 처리됨).
+- `topic_crawler.py`는 삭제됨(타사 상품/뉴스가 주제로 유입). `get_planned_reels_proposals()`가 A/B안을 만든다.
+- 승자 공식: "을목 여자 특징? 이거 모르면" (1일 만에 조회 1,300+, 타 콘텐츠 6배) = 일간(10)+성별 정체성 타겟 + 결론을 숨긴 궁금증 갭.
+  씨앗은 (일간, 성별, 포맷) 로테이션(최근 게시와 겹치면 가중치 하락, 을목/갑목/병화/정화 가중). 사주 70% / MBTI 30%.
+- `classify_custom_topic`(사용자 직접 입력 분류)은 planner로 이동. `main.py`의 series 선택지/`trend_hint` 필드는 호환용으로 유지(빈 값).
+- 이미지: `visual_gen.REALISM_SUFFIX`(스마트폰 스냅·자연광·피부결) 사용, 대본 visual_prompt도 실제 한국인 일상 장면으로 작성.
 
 ## 6. 품질 확인 시 주의
 
@@ -107,12 +92,12 @@ description: insta_auto 저장소의 MBTI×사주 릴스/숏츠 파이프라인�
   수집. 성과 상위 게시물은 기획안/캐러셀 프롬프트의 '참고 예시'로만 쓰이며(도메인 선택은 계속 무작위),
   집계 게시물이 `INSIGHTS_MIN_POSTS`(기본 5) 미만이면 예시를 쓰지 않는다.
 - **사용자 지정 주제**: 텔레그램 `/topic 주제` 또는 기획안 메시지의 '직접 주제 입력' 버튼 →
-  `topic_crawler.classify_custom_topic`이 MBTI/TAROT/SHINJEOM/JAMIDOSU/SAJU로 분류(운세 도메인 제약 유지).
+  `topic_planner.classify_custom_topic`이 MBTI/TAROT/SHINJEOM/JAMIDOSU/SAJU로 분류(운세 도메인 제약 유지).
 
 ## 8. 주제 / 나레이션 톤 (2차 기획안)
 
 - '오늘의 운세'식 일일 주제 금지. 순위·특성 중심(예: "슬프면 눈물 흘리는 MBTI 1위", "잘 어울리는 사주&MBTI 조합 1위").
-  프롬프트: `mbti_saju_content.REELS_PERSONA`, `topic_crawler.get_crawled_reels_proposals`. 제목은 16자 이내.
+  프롬프트: `mbti_saju_content.REELS_PERSONA`, `topic_planner.get_planned_reels_proposals`. 제목은 16자 이내.
 - TTS: `tts_engine.EDGE_VOICE_PRESETS`/`GOOGLE_VOICE_PRESETS`에서 영상마다 남/여+톤(rate/pitch) 랜덤 선택.
   `TTS_VOICE_NAME` 환경변수를 지정하면 고정.
 

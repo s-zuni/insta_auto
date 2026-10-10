@@ -46,6 +46,11 @@ REELS_PERSONA = """[릴스 바이럴 디렉터 페르소나]
   3. 경고·타겟 특정형: "주변에 이 MBTI 있으면 무조건 조심하세요", "올해 대운 들어오기 직전 나타나는 소름 돋는 징조"
 - 절대 금지: "오늘은 ~를 알아볼게요", "안녕하세요" 같은 지루한 설명형 인트로 절대 금지!
 
+[검증된 타겟팅 규칙 - 우리 계정 최고 성과 공식]
+- "을목 여자 특징? 이거 모르면" 릴스가 1일 만에 조회 1,300+ (타 콘텐츠 6배). 대상을 일간+성별(또는 MBTI+성별)로 좁게 지정하고 결론은 숨긴 채 시작한다.
+- 씬 1에서 대상을 직접 호명("을목 여자라면"), 씬 2~4는 '일상 장면' 3가지(카톡, 퇴근 후, 연애, 돈 쓰는 순간)로 공감을 쌓고, 마지막 직전에 반전 한 줄을 둔다.
+- 특징은 '좋은 점 1 : 아픈 점 2' 비율로 써서 "내 얘기다" 소름과 저장 욕구를 동시에 만든다.
+
 [2단계: 본문 구성 및 인터랙션 트리거 - 씬 2~4 규칙]
 - 팩트 폭격 + 사주 명리학/MBTI 심리 분석을 빠르게 교차 전달 (~해요, ~거든요, ~랍니다 식의 리듬감 있는 말투).
 - 댓글·공유 유도 떡밥을 본문 중간에 자연스럽게 삽입 (예: "주변에 이런 친구 꼭 있죠?", "공감된다면 댓글로 남겨주세요").
@@ -106,10 +111,14 @@ DYNAMIC_SHORTFORM_CTAS = [
 ]
 
 
-def _enforce_shortform_cta(script: ReelsScript) -> ReelsScript:
+def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "") -> ReelsScript:
     """숏폼(릴스, 숏츠)의 마지막 씬 내레이션과 캡션에 고전환 CTA를 적용합니다."""
     # 영상마다 자연스럽게 순환하는 고전환 CTA 멘트 적용
-    chosen_short_cta, chosen_caption_cta = random.choice(DYNAMIC_SHORTFORM_CTAS)
+    try:
+        from pipeline.cta import pick_reel_cta
+        chosen_short_cta, chosen_caption_cta = pick_reel_cta(series, topic or script.title)
+    except Exception:
+        chosen_short_cta, chosen_caption_cta = random.choice(DYNAMIC_SHORTFORM_CTAS)
 
     if script.scenes:
         script.scenes[-1].narration = chosen_short_cta
@@ -117,6 +126,8 @@ def _enforce_shortform_cta(script: ReelsScript) -> ReelsScript:
             script.scenes[-1].duration_estimate = 4
 
     # 기존 일반 멘트가 있다면 고전환 멘트로 교체
+    # LLM이 프롬프트의 기본 CTA를 그대로 쓴 경우, 주제별 CTA로 교체되도록 먼저 제거
+    script.instagram_caption = script.instagram_caption.replace(FIXED_CAPTION_CTA, "").strip()
     old_cta_pattern = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
     if old_cta_pattern in script.instagram_caption:
         script.instagram_caption = script.instagram_caption.replace(
@@ -148,15 +159,15 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
 JSON 스키마:
 - title: 릴스 제목 (16자 이내, 호기심 자극)
 - hook: 초반 3초 후킹 대사
-- scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문 가로 16:9 landscape cinematic no text], duration_estimate)
+- scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문, 가로 16:9. 실제 한국인이 스마트폰으로 찍은 일상 사진처럼 묘사(나이대·상황·표정·소품 구체화, 씬마다 구도 변경). glowing/mystical/neon/cosmic/fantasy/일러스트/3D 금지. no text], duration_estimate)
   * 마지막 씬 narration은 반드시 "{FIXED_SHORTFORM_CTA}" 로 작성
 - instagram_caption: 이모지 포함 + "{FIXED_CAPTION_CTA}" 포함 + 해시태그 10개 이상"""
     try:
         script = generate_json(system_prompt, user_prompt, ReelsScript, temperature=0.8, model_name=model_name)
-        return _enforce_shortform_cta(script)
+        return _enforce_shortform_cta(script, series, str(context.get("topic", "")))
     except Exception as e:
         print(f"[WARNING] OpenAI API 실패 ({e}). 폴백 대본 사용.")
-        return _enforce_shortform_cta(_fallback(series, context))
+        return _enforce_shortform_cta(_fallback(series, context), series, str(context.get("topic", "")))
 
 
 def _fallback(series: str, context: dict) -> ReelsScript:
@@ -167,15 +178,15 @@ def _fallback(series: str, context: dict) -> ReelsScript:
         hook=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.",
         scenes=[
             Scene(scene_id=1, narration=f"{mbti}라면 지금 이 영상 끝까지 보셔야 합니다.", duration_estimate=4,
-                  visual_prompt=f"Horizontal 16:9 landscape ratio, mystical glowing {mbti} text on dark cosmic background, Korean fortune aesthetic, cinematic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, candid smartphone photo of a Korean woman in her late 20s sitting at a cafe window seat looking at her phone, natural daylight, no text"),
             Scene(scene_id=2, narration=f"{mbti}는 {t1} 성향이 강하죠. 사주로 보면 식상과 인성 기운이 교차하는 복잡한 구조를 가진 경우가 많습니다.", duration_estimate=6,
-                  visual_prompt="Horizontal 16:9 landscape ratio, ancient Korean fortune book, candlelight, mystical symbols, cinematic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, candid photo of a Korean man in his 30s reading on a subway commute, natural light, no text"),
             Scene(scene_id=3, narration=f"특히 {t2} 기질이 강한 시기에는 관성과의 충돌이 생길 수 있어요.", duration_estimate=6,
-                  visual_prompt="Horizontal 16:9 landscape ratio, person silhouette at crossroads with glowing energy paths, Korean traditional aesthetic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, candid photo of a Korean woman walking alone on a city street at dusk, natural light, no text"),
             Scene(scene_id=4, narration="지금 당장 이 행동 하나만 바꿔 보세요.", duration_estimate=5,
-                  visual_prompt="Horizontal 16:9 landscape ratio, close-up hands writing in journal, glowing ink, warm bokeh, cinematic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, candid close-up of hands writing in a notebook on a messy desk, natural window light, no text"),
             Scene(scene_id=5, narration=FIXED_SHORTFORM_CTA, duration_estimate=4,
-                  visual_prompt="Horizontal 16:9 landscape ratio, smartphone screen displaying profile link with mystical glow, clean modern aesthetic, no text"),
+                  visual_prompt="Horizontal 16:9 landscape ratio, candid photo of a Korean woman holding a smartphone smiling at home, natural light, no text"),
         ],
         instagram_caption=f"✨ {mbti} {nick} 사주×MBTI 분석\n\n{FIXED_CAPTION_CTA}\n\n#{mbti} #MBTI운세 #사주 #운세 #병오년운세 #MBTI분석 #사주궁합 #운명 #릴스"
-    )
+    )

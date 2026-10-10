@@ -197,7 +197,10 @@ SYSTEM_PROMPT = """
 3. visual_prompt (FLUX / Imagen 가이드):
    - 반드시 '영문(English)'으로 작성.
    - 이미지는 16:9 가로 비율로 생성되어 릴스 프레임 중앙에 배치됩니다.
-   - 키워드 예시: "Horizontal 16:9 landscape ratio, cinematic lighting, photorealistic, mystical aesthetic, 8k resolution, sharp focus".
+   - ★실사 규칙★ 가상 인물/일러스트/3D/신비주의 합성 느낌 금지. 실제 한국인이 일상에서 찍은 사진처럼 묘사한다.
+     (예: "a Korean woman in her late 20s at a cafe window seat looking at her phone, natural daylight, candid smartphone photo")
+     인물은 구체적 나이대·상황·표정·소품(카페, 퇴근길 지하철, 자취방 책상, 편의점)을 쓰고, glowing/mystical/neon/cosmic/fantasy 단어는 쓰지 않는다.
+     씬마다 인물 구도를 바꾼다(클로즈업 손, 뒷모습, 옆얼굴, 사물 컷 등).
    - 글자나 텍스트가 이미지에 찍히지 않도록 "no text, no letters, no watermark, clean composition"을 항상 포함.
 4. instagram_caption:
    - 이모지를 적절히 배치하여 가독성을 높이고, 저장/공유 유도 문구와 함께 인기 해시태그 8~12개 포함.

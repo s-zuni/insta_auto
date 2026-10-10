@@ -224,18 +224,18 @@ def get_updates(offset: int) -> tuple[list, int]:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. 운세 도메인 크롤링 기반 기획안 생성
+# 3. 승자 공식(일간+성별 타겟 / 궁금증 갭) 기반 기획안 생성
 # ─────────────────────────────────────────────────────────────
 DOMAIN_LABELS = {"SAJU": "사주", "MBTI": "MBTI", "SHINJEOM": "신점", "JAMIDOSU": "자미두수", "TAROT": "타로", "DAILY": "오행 운세"}
 
 
 def generate_and_send_proposals(chat_id: str | int = None):
-    from pipeline.topic_crawler import get_crawled_reels_proposals
+    from pipeline.topic_planner import get_planned_reels_proposals
 
-    print("[BOT] 운세 도메인(사주/MBTI/신점/자미두수/타로) 실시간 크롤링 기반 기획안 생성 시작")
-    tg_send("🔮 <b>사주·MBTI·신점·자미두수·타로 실시간 화제를 크롤링해 기획안을 생성 중입니다...</b> (약 10~15초)", chat_id=chat_id)
+    print("[BOT] 승자 공식 기반 기획안 생성 시작 (크롤링 없음)")
+    tg_send("🔮 <b>검증된 공식(일간·성별 타겟 + 궁금증 갭)으로 기획안을 생성 중입니다...</b> (약 10초)", chat_id=chat_id)
 
-    proposals = get_crawled_reels_proposals()
+    proposals = get_planned_reels_proposals()
     pa = proposals.get("option_a", {})
     pb = proposals.get("option_b", {})
 
@@ -265,7 +265,7 @@ def generate_and_send_proposals(chat_id: str | int = None):
     label_b = DOMAIN_LABELS.get(series_b, series_b) + (f" {mbti_b}" if mbti_b else "")
 
     msg = (
-        f"🔮 <b>[릴스·캐러셀 기획안 2가지 - 실시간 운세 트렌드 기반]</b>\n\n"
+        f"🔮 <b>[릴스·캐러셀 기획안 2가지 - 검증된 공식 기반]</b>\n\n"
         f"───────────────────\n"
         f"📌 <b>[A안] {html.escape(label_a)}</b>\n"
         + (f"• <b>실시간 화제:</b> {html.escape(trend_a)}\n" if trend_a else "")
@@ -626,7 +626,7 @@ def begin_custom_topic(chat_id: str | int):
 
 def handle_custom_topic_text(text: str, chat_id: str | int):
     """사용자가 입력한 주제를 분류해 저장하고 릴스/캐러셀 중 포맷을 고르게 합니다."""
-    from pipeline.topic_crawler import classify_custom_topic
+    from pipeline.topic_planner import classify_custom_topic
 
     info = classify_custom_topic(text)
     key = f"u_{info['series']}_{int(time.time())}"

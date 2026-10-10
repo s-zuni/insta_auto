@@ -24,8 +24,8 @@ main.py run_pipeline()
   6. gdrive_uploader / insta_publisher / youtube_publisher → 배포
 ```
 
-텔레그램 봇(`telegram_bot.py`)은 `pipeline/topic_crawler.py`로 사주/MBTI/신점/자미두수/타로
-도메인의 실시간 뉴스를 크롤링해 기획안 2개를 만들고, 버튼 클릭 시 위 파이프라인을 그대로 호출합니다.
+텔레그램 봇(`telegram_bot.py`)은 `pipeline/topic_planner.py`(크롤링 없음, 일간+성별 타겟 승자 공식 기반)로
+기획안 2개를 만들고, 버튼 클릭 시 위 파이프라인을 그대로 호출합니다.
 
 ## 절대 어기면 안 되는 규칙 (이번 세션에서 확정된 결정)
 
@@ -33,9 +33,9 @@ main.py run_pipeline()
   발음됩니다(예: "토(土)" → "토토"). 프롬프트 지시(`script_gen.py`, `mbti_saju_content.py`)와
   `text_utils.sanitize_narration()` 2중 방어가 이미 걸려 있으니, 새 series/프롬프트를 추가할 때도
   이 규칙을 유지하세요. 제목(title)은 화면에만 표시되고 읽히지 않으므로 한자 표기가 남아 있어도 무방.
-- **크롤링은 운세 도메인으로 한정.** `topic_crawler.py`의 `FORTUNE_DOMAINS`(사주/MBTI/신점/자미두수/
-  타로)만 검색합니다. 범용 핫이슈(정치/연예/스포츠)를 다시 끌어오는 방향으로 되돌리지 마세요 —
-  사용자가 명시적으로 원치 않는다고 확인한 방식입니다.
+- **크롤링 금지.** 외부 뉴스/타사 상품 크롤링은 제거됨(타사 상품이 주제로 섞여 들어오는 문제). 기획은 `topic_planner.py`의
+  승자 공식("을목 여자 특징? 이거 모르면" = 일간+성별 정체성 타겟 + 결론 숨김)으로만 만든다. 크롤러를 되살리지 마세요.
+- **이미지는 실사(스마트폰 스냅) 스타일.** `visual_gen.REALISM_SUFFIX` 사용. glowing/mystical/일러스트 계열로 되돌리지 마세요.
 - **자막은 문장부호 기준 절 단위 + 실측 픽셀 폭 래핑.** 단어 개수로 대충 반으로 자르는 방식(예전
   구현)으로 되돌리지 마세요. `composer.py`의 `build_caption_chunks`(`text_utils.py`)가 이를 담당.
 - **레이아웃 변경은 `compose_reels_frame()` 하나만 수정.** 카드형 박스(둥근 사각형 배경)는 사용자가
