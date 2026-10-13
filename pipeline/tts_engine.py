@@ -358,11 +358,86 @@ def _concatenate_audio_files(input_files: List[str], output_file: Path):
     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 
+def synthesize_with_gtts_fallback(
+    scenes: list,
+    output_dir: Path,
+) -> FullAudioResult:
+    """
+    Edge-TTS 차단(403 등) 시 100% 무중단 동작을 보장하는 Google 무료 gTTS 폴백 엔진.
+    """
+    try:
+        from gtts import gTTS
+    except ImportError:
+        import subprocess
+        print("[INFO] gTTS 패키지가 없어 자동으로 설치합니다 (pip install gTTS)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "gTTS"], check=True)
+        from gtts import gTTS
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scene_results: List[SceneAudioResult] = []
+    current_time_offset = 0.0
+
+    for sc in scenes:
+        scene_id = getattr(sc, "scene_id", sc.get("scene_id") if isinstance(sc, dict) else 1)
+        narration = getattr(sc, "narration", sc.get("narration") if isinstance(sc, dict) else "")
+
+        scene_filename = f"scene_{scene_id:02d}.mp3"
+        scene_path = output_dir / scene_filename
+
+        tts = gTTS(text=narration, lang="ko")
+        tts.save(str(scene_path))
+
+        duration = get_audio_duration(str(scene_path))
+        start_time = current_time_offset
+        end_time = current_time_offset + duration
+
+        # 자막 싱크용 단어 타이밍 균등 분할
+        words = narration.split()
+        word_count = max(len(words), 1)
+        word_dur = duration / word_count
+        adjusted_timings = []
+        for idx, w in enumerate(words):
+            w_start = round(start_time + (idx * word_dur), 3)
+            w_end = round(start_time + ((idx + 1) * word_dur), 3)
+            adjusted_timings.append(WordTiming(word=w, start_time=w_start, end_time=w_end))
+
+        scene_results.append(
+            SceneAudioResult(
+                scene_id=scene_id,
+                audio_path=str(scene_path.resolve()),
+                duration=round(duration, 3),
+                start_time=round(start_time, 3),
+                end_time=round(end_time, 3),
+                narration=narration,
+                word_timings=adjusted_timings
+            )
+        )
+        current_time_offset += duration
+
+    full_audio_path = output_dir / "full_narration.mp3"
+    _concatenate_audio_files([r.audio_path for r in scene_results], full_audio_path)
+    total_duration = get_audio_duration(str(full_audio_path))
+
+    timing_json_path = output_dir / "timing_info.json"
+    result = FullAudioResult(
+        audio_path=str(full_audio_path.resolve()),
+        total_duration=round(total_duration, 3),
+        scene_results=scene_results,
+        timing_json_path=str(timing_json_path.resolve())
+    )
+
+    with open(timing_json_path, "w", encoding="utf-8") as f:
+        f.write(result.model_dump_json(indent=2))
+
+    return result
+
+
 def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> FullAudioResult:
     """
     대본의 씬(scenes) 리스트를 입력받아 음성 및 타이밍 정보를 생성합니다.
     1. Google Cloud Text-to-Speech 우선 시도
-    2. GCP 인증 미설정 시 고음질 Edge-TTS 엔진으로 자동 전환
+    2. GCP 인증 미설정 시 고음질 Edge-TTS 엔진 시도
+    3. Edge-TTS 403 차단/실패 시 Google 무료 gTTS 엔진으로 3차 자동 폴백 (100% 무중단 완주)
     """
     if output_dir is None:
         output_dir = Path("assets/audio")
@@ -391,7 +466,13 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
     ep = random.choice(EDGE_VOICE_PRESETS)
     edge_voice = forced_voice if forced_voice.startswith("ko-KR-") and forced_voice.endswith("Neural") and "Neural2" not in forced_voice else ep["voice"]
     print(f"[TTS] Edge-TTS({edge_voice}, rate={ep['rate']}, pitch={ep['pitch']})로 음성 합성을 진행합니다...")
-    return synthesize_with_edge_tts_fallback(scenes, output_dir, edge_voice, ep["rate"], ep["pitch"])
+    try:
+        return synthesize_with_edge_tts_fallback(scenes, output_dir, edge_voice, ep["rate"], ep["pitch"])
+    except Exception as e:
+        print(f"\n[WARNING] Edge-TTS 요청 거부/실패 감지 ({e})")
+        print("[TTS] ➔ Google 무료 gTTS 엔진으로 안전하게 자동 전환하여 음성을 합성합니다...")
+        return synthesize_with_gtts_fallback(scenes, output_dir)
+
 
 
 if __name__ == "__main__":
