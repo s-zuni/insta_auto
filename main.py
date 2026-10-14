@@ -103,6 +103,11 @@ def run_pipeline(
 
     # 3. 비주얼 생성
     print("\n[3/7] 🎨 16:9 비주얼 생성 및 상단 제목 릴스 프레임 합성 중...")
+    if mock_images:
+        print("  ⚠️ [--mock-images 활성화] 실제 AI 사진 생성을 건너뛰고 단색 플레이스홀더를 사용합니다.")
+    else:
+        engine = os.getenv("IMAGE_ENGINE", "gemini").upper()
+        print(f"  ✨ 실제 맞춤 AI 사진 생성 모드로 실행합니다. (엔진: {engine})")
     t0 = time.time()
     visual_result = generate_scene_images(script.scenes, force_mock=mock_images, title=script.title)
     image_paths = visual_result.image_paths
@@ -336,10 +341,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="MBTI×사주 인스타그램 릴스 & 유튜브 숏츠(9:16) 원클릭 자동 제작 CLI"
     )
-    parser.add_argument("--series", type=str, default="MBTI",
+    parser.add_argument("--series", type=str, default=None,
                         choices=["GENERAL", "MBTI", "DAILY", "LOVE", "CAREER", "ELEMENT",
                                  "SAJU", "SHINJEOM", "JAMIDOSU", "TAROT"],
-                        help="콘텐츠 시리즈")
+                        help="콘텐츠 시리즈 (미지정 시 주제에 맞춰 자동 판별, 기본 MBTI)")
     parser.add_argument("--mbti", type=str, default="ENFP",
                         help="MBTI 유형 (MBTI 시리즈용)")
     parser.add_argument("--element", type=str, default="목(木)",
@@ -351,7 +356,7 @@ def main():
     parser.add_argument("--mock-script", action="store_true",
                         help="LLM API 없이 샘플 대본으로 테스트")
     parser.add_argument("--mock-images", action="store_true",
-                        help="Imagen 3 대신 플레이스홀더로 테스트")
+                        help="AI 이미지 생성 없이 단색 플레이스홀더로 테스트")
     parser.add_argument("--no-gdrive", action="store_true",
                         help="Google Drive 업로드 건너뛰기")
     parser.add_argument("--no-insta", action="store_true",
@@ -365,9 +370,27 @@ def main():
 
     args = parser.parse_args()
 
+    # 시리즈 자동 판별: --series 가 명시되지 않은 경우, topic 의 내용을 분석하여 GENERAL 또는 MBTI/SAJU 결정
+    series = args.series
+    if not series:
+        if args.topic:
+            upper_topic = args.topic.upper()
+            mbti_types = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+                          "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
+            is_mbti = any(m in upper_topic for m in mbti_types) or ("MBTI" in upper_topic) or ("엠비티아이" in args.topic)
+            is_saju = any(w in args.topic for w in ["사주", "일간", "오행", "운세", "타로", "신점", "자미두수", "궁합"])
+            if is_mbti:
+                series = "MBTI"
+            elif is_saju:
+                series = "SAJU"
+            else:
+                series = "GENERAL"
+        else:
+            series = "MBTI"
+
     if args.format == "carousel":
         run_carousel_pipeline(
-            topic=args.topic, series=args.series, mbti=args.mbti, element=args.element,
+            topic=args.topic, series=series, mbti=args.mbti, element=args.element,
             trend_hint=args.trend_hint, mock_images=args.mock_images,
             publish_insta=not args.no_insta,
         )
@@ -375,7 +398,7 @@ def main():
 
     run_pipeline(
         topic=args.topic,
-        series=args.series,
+        series=series,
         mbti=args.mbti,
         element=args.element,
         trend_hint=args.trend_hint,

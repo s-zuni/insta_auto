@@ -155,12 +155,11 @@ def generate_with_gemini_nanobanana(prompt: str, output_path: Path, retries: int
                 model=model_name,
                 contents=enhanced_prompt,
                 config=types.GenerateContentConfig(
-                    response_modalities=["TEXT", "IMAGE"],
+                    response_modalities=["IMAGE"],
                     image_config=types.ImageConfig(
                         aspect_ratio="16:9",
                         image_size=os.getenv("GEMINI_IMAGE_SIZE", "1K"),
                     ),
-
                 ),
             )
 
@@ -333,7 +332,9 @@ def generate_scene_images(
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     can_use_nanobanana = bool(gemini_api_key and not gemini_api_key.startswith("your_"))
 
-    engine_preference = os.getenv("IMAGE_ENGINE", "flux").lower().strip()
+    # Gemini API Key가 있으면 고품질 무워터마크 맞춤 사진을 위해 Gemini 나노바나나를 기본 엔진으로 사용
+    default_engine = "gemini" if can_use_nanobanana else "flux"
+    engine_preference = os.getenv("IMAGE_ENGINE", default_engine).lower().strip()
     result = ImageGenResult()
     print(f"[VISUAL] 총 {len(scenes)}개 씬 비주얼 생성 및 릴스 프레임 레이아웃 합성 시작 (기본 엔진: {engine_preference})...")
 
@@ -346,16 +347,8 @@ def generate_scene_images(
         generated = False
 
         if not force_mock:
-            # 1. 사용자가 FLUX(무료, 초고속)를 기본으로 설정한 경우 (권장 모드)
-            if engine_preference == "flux":
-                generated = generate_with_pollinations_flux(prompt, img_path)
-                if not generated and can_use_nanobanana:
-                    generated = generate_with_gemini_nanobanana(prompt, img_path)
-                if not generated and can_use_vertex:
-                    generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
-
-            # 2. Gemini 나노바나나 우선 모드
-            elif engine_preference in ("gemini", "nanobanana"):
+            # 1. Gemini 나노바나나 우선 모드 (초고화질 실사 맞춤 사진, 무워터마크)
+            if engine_preference in ("gemini", "nanobanana"):
                 if can_use_nanobanana:
                     generated = generate_with_gemini_nanobanana(prompt, img_path)
                 if not generated:
@@ -363,14 +356,22 @@ def generate_scene_images(
                 if not generated and can_use_vertex:
                     generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
 
+            # 2. FLUX 우선 모드 (비용 0원, 실패 시 Gemini 폴백)
+            elif engine_preference == "flux":
+                generated = generate_with_pollinations_flux(prompt, img_path)
+                if not generated and can_use_nanobanana:
+                    generated = generate_with_gemini_nanobanana(prompt, img_path)
+                if not generated and can_use_vertex:
+                    generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
+
             # 3. 기타 또는 Vertex Imagen 우선 모드
             else:
                 if can_use_vertex:
                     generated = generate_with_vertex_imagen(prompt, img_path, project_id, location, model_name)
-                if not generated:
-                    generated = generate_with_pollinations_flux(prompt, img_path)
                 if not generated and can_use_nanobanana:
                     generated = generate_with_gemini_nanobanana(prompt, img_path)
+                if not generated:
+                    generated = generate_with_pollinations_flux(prompt, img_path)
 
         if not generated:
             print(f"  [VISUAL] 씬 {scene_id} 16:9 플레이스홀더 생성")

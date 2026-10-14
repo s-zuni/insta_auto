@@ -216,8 +216,14 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
     script = generate_json(SYSTEM_PROMPT, prompt, ReelsScript, temperature=0.7, model_name=model_name)
 
     def _enforce_cta(sc: ReelsScript) -> ReelsScript:
-        fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
-        caption_cta = "👉 프로필 링크에서 당신의 모든 운명을 확인하세요!"
+        is_fortune = any(w in (topic + " " + sc.title) for w in ["사주", "운명", "운세", "타로", "신점", "자미두수", "궁합"])
+        if is_fortune:
+            fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
+            caption_cta = "👉 프로필 링크에서 당신의 모든 운명을 확인하세요!"
+        else:
+            fixed_cta = "프로필 링크에서 더 자세한 꿀팁과 전체 내용을 확인해보세요!"
+            caption_cta = "👉 프로필 링크에서 더 자세한 꿀팁과 전체 내용을 확인하세요!"
+
         if sc.scenes:
             sc.scenes[-1].narration = fixed_cta
             if sc.scenes[-1].duration_estimate < 3:
