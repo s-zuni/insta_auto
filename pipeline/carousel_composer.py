@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
-from pipeline.text_utils import wrap_by_pixel_width
+from pipeline.text_utils import sanitize_title, wrap_by_pixel_width
 
 if sys.platform == "win32":
     try:
@@ -151,7 +151,7 @@ def render_cover(headline: str, tag: str, cover_image: Optional[Path], out_path:
     img = _gradient_bg()
     d = ImageDraw.Draw(img)
 
-    clean_title = headline.replace("\r", "").replace("\n", " ").strip()
+    clean_title = sanitize_title(headline).replace("\r", "").replace("\n", " ").strip()
     text_w = W - MARGIN_X * 2  # 좌우 여백 90px씩 확보 (900px)
 
     # 제목 폰트 크기 자동 조절 (88px부터 시작, 3~4줄 이내로 화면 중앙에 맞춤)
@@ -176,6 +176,7 @@ def render_content(index: int, total: int, headline: str, body: str, out_path: P
     d.line([(MARGIN_X, 175), (W - MARGIN_X, 175)], fill=ACCENT, width=3)
 
     text_w = W - MARGIN_X * 2
+    headline, body = sanitize_title(headline), sanitize_title(body)
     h_font, h_lines, h_lh = _fit_lines(headline, text_w, 380, start=76, min_size=52, line_ratio=1.3)
     y = 260
     y = _draw_lines(d, h_lines, h_font, MARGIN_X, y, h_lh, WHITE)

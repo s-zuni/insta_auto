@@ -11,7 +11,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from pipeline.text_utils import wrap_by_pixel_width
+from pipeline.text_utils import sanitize_title, wrap_by_pixel_width
 
 if sys.platform == "win32":
     try:
@@ -58,7 +58,7 @@ def build_reel_cover(
         b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
         d.line([(0, y_pos), (W, y_pos)], fill=(r, g, b))
 
-    clean = title.replace("\n", " ").strip()
+    clean = sanitize_title(title).replace("\n", " ").strip()
 
     # 제목 폰트 크기: 기존 112에서 약 1.3배 증가한 146부터 시작
     size = 146

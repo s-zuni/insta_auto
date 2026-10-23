@@ -28,16 +28,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # 영상마다 랜덤 선택되는 목소리 프리셋(남/여 + 톤 변화). rate/pitch는 재미있는 톤 연출용.
 EDGE_VOICE_PRESETS = [
-    {"voice": "ko-KR-SunHiNeural", "rate": "+8%", "pitch": "+0Hz"},     # 여성, 경쾌
-    {"voice": "ko-KR-SunHiNeural", "rate": "+0%", "pitch": "+6Hz"},     # 여성, 하이톤 수다
-    {"voice": "ko-KR-InJoonNeural", "rate": "+8%", "pitch": "+0Hz"},    # 남성, 텐션업
-    {"voice": "ko-KR-InJoonNeural", "rate": "-2%", "pitch": "-4Hz"},    # 남성, 능청스러운 저음
+    {"voice": "ko-KR-SunHiNeural", "rate": "+14%", "pitch": "+0Hz"},     # 여성, 경쾌
+    {"voice": "ko-KR-SunHiNeural", "rate": "+8%", "pitch": "+6Hz"},     # 여성, 하이톤 수다
+    {"voice": "ko-KR-InJoonNeural", "rate": "+14%", "pitch": "+0Hz"},    # 남성, 텐션업
+    {"voice": "ko-KR-InJoonNeural", "rate": "+6%", "pitch": "-4Hz"},    # 남성, 능청스러운 저음
 ]
 GOOGLE_VOICE_PRESETS = [
-    {"voice": "ko-KR-Neural2-A", "rate": 1.08, "pitch": 1.0},   # 여성, 경쾌
-    {"voice": "ko-KR-Neural2-B", "rate": 1.0, "pitch": 3.0},    # 여성, 하이톤
-    {"voice": "ko-KR-Neural2-C", "rate": 1.08, "pitch": 0.0},   # 남성, 텐션업
-    {"voice": "ko-KR-Neural2-C", "rate": 0.98, "pitch": -3.0},  # 남성, 능청스러운 저음
+    {"voice": "ko-KR-Neural2-A", "rate": 1.14, "pitch": 1.0},   # 여성, 경쾌
+    {"voice": "ko-KR-Neural2-B", "rate": 1.08, "pitch": 3.0},    # 여성, 하이톤
+    {"voice": "ko-KR-Neural2-C", "rate": 1.14, "pitch": 0.0},   # 남성, 텐션업
+    {"voice": "ko-KR-Neural2-C", "rate": 1.06, "pitch": -3.0},  # 남성, 능청스러운 저음
 ]
 
 
@@ -432,6 +432,10 @@ def synthesize_with_gtts_fallback(
     return result
 
 
+# 마지막으로 쓴 TTS 설정 (A/B 변형 기록용). generate_speech가 갱신한다.
+LAST_TTS_INFO: dict = {}
+
+
 def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> FullAudioResult:
     """
     대본의 씬(scenes) 리스트를 입력받아 음성 및 타이밍 정보를 생성합니다.
@@ -457,6 +461,8 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
         gp = random.choice(GOOGLE_VOICE_PRESETS)
         voice_name = forced_voice or gp["voice"]
         speaking_rate = float(os.getenv("TTS_SPEAKING_RATE", gp["rate"]))
+        LAST_TTS_INFO.clear()
+        LAST_TTS_INFO.update(engine="google", voice=voice_name, rate=str(speaking_rate))
         try:
             print(f"[TTS] Google Cloud TTS({voice_name}, rate={speaking_rate}, pitch={gp['pitch']})로 음성 합성을 진행합니다...")
             return synthesize_with_google_tts(scenes, output_dir, voice_name, speaking_rate, gp["pitch"])
@@ -465,12 +471,16 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
 
     ep = random.choice(EDGE_VOICE_PRESETS)
     edge_voice = forced_voice if forced_voice.startswith("ko-KR-") and forced_voice.endswith("Neural") and "Neural2" not in forced_voice else ep["voice"]
+    LAST_TTS_INFO.clear()
+    LAST_TTS_INFO.update(engine="edge", voice=edge_voice, rate=ep["rate"])
     print(f"[TTS] Edge-TTS({edge_voice}, rate={ep['rate']}, pitch={ep['pitch']})로 음성 합성을 진행합니다...")
     try:
         return synthesize_with_edge_tts_fallback(scenes, output_dir, edge_voice, ep["rate"], ep["pitch"])
     except Exception as e:
         print(f"\n[WARNING] Edge-TTS 요청 거부/실패 감지 ({e})")
         print("[TTS] ➔ Google 무료 gTTS 엔진으로 안전하게 자동 전환하여 음성을 합성합니다...")
+        LAST_TTS_INFO.clear()
+        LAST_TTS_INFO.update(engine="gtts", voice="gtts", rate="default")
         return synthesize_with_gtts_fallback(scenes, output_dir)
 
 

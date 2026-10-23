@@ -56,6 +56,9 @@ def _conn() -> sqlite3.Connection:
             published_at TEXT
         )
     """)
+    # A/B 변형 기록(씬 수, 공유 CTA 유무, TTS 속도 등). 기존 DB는 컬럼만 추가한다.
+    if "variant_json" not in {r[1] for r in conn.execute("PRAGMA table_info(published_posts)")}:
+        conn.execute("ALTER TABLE published_posts ADD COLUMN variant_json TEXT")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS post_insights (
             media_id TEXT,
@@ -74,16 +77,21 @@ def _now() -> datetime.datetime:
 
 
 def record_post(media_id: str, fmt: str, series: str = "", mbti: str = "", topic: str = "",
-                title: str = "", hook: str = "", trend_hint: str = "", permalink: str = "") -> None:
-    """게시 직후 호출해 메타데이터를 저장합니다. fmt: 'reel' | 'carousel'"""
+                title: str = "", hook: str = "", trend_hint: str = "", permalink: str = "",
+                variant: Optional[Dict[str, Any]] = None) -> None:
+    """게시 직후 호출해 메타데이터를 저장합니다. fmt: 'reel' | 'carousel'
+    variant: 어떤 변형으로 만들었는지(예: {"scenes": 9, "share_cta": True, "tts_rate": "+14%"}). 성과 비교용."""
     if not media_id:
         return
     conn = _conn()
     try:
         with conn:
             conn.execute(
-                "INSERT OR REPLACE INTO published_posts VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (str(media_id), fmt, series, mbti, topic, title, hook, trend_hint, permalink, _now().isoformat()),
+                "INSERT OR REPLACE INTO published_posts "
+                "(media_id, format, series, mbti, topic, title, hook, trend_hint, permalink, published_at, variant_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (str(media_id), fmt, series, mbti, topic, title, hook, trend_hint, permalink, _now().isoformat(),
+                 json.dumps(variant or {}, ensure_ascii=False)),
             )
     finally:
         conn.close()
@@ -202,6 +210,24 @@ def format_examples_for_prompt(examples: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def variant_summary(key: str, rows: Optional[List[sqlite3.Row]] = None, fmt: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+    """variant_json의 key 값별 평균 score와 게시물 수. 예: variant_summary('share_cta') -> {'True': {...}, 'False': {...}}
+    값이 없는 게시물(구버전)은 제외한다."""
+    rows = _latest_scored_posts() if rows is None else rows
+    groups: Dict[str, List[float]] = {}
+    for r in rows:
+        if fmt and r["format"] != fmt:
+            continue
+        try:
+            v = json.loads(r["variant_json"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        if key not in v:
+            continue
+        groups.setdefault(str(v[key]), []).append(r["score"])
+    return {k: {"avg_score": round(sum(s) / len(s), 3), "n": len(s)} for k, s in groups.items()}
+
+
 def weekly_report(days: int = 7) -> str:
     """텔레그램용 요약 리포트(HTML)."""
     rows = _latest_scored_posts()
@@ -234,6 +260,13 @@ def weekly_report(days: int = 7) -> str:
     out += ["", "<b>📚 시리즈 평균 score</b>"]
     for s, v in sorted(by_series.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])):
         out.append(f"• {s}: {sum(v) / len(v):.2f} ({len(v)}개)")
+    ab_lines = []
+    for key, label in (("share_cta", "공유 CTA"), ("scene_bucket", "씬 수"), ("tts_rate", "TTS 속도")):
+        summ = variant_summary(key, rows, fmt="reel")
+        if len(summ) > 1:  # 비교할 변형이 2개 이상일 때만
+            ab_lines.append(f"• {label}: " + " / ".join(f"{k} {v['avg_score']:.2f} (n={v['n']})" for k, v in sorted(summ.items())))
+    if ab_lines:
+        out += ["", "<b>🧪 A/B 변형별 평균 score</b>"] + ab_lines + ["<i>n이 작으면 참고용입니다.</i>"]
     if recent:
         out += ["", f"<i>최근 {days}일 집계 게시물 {len(recent)}개</i>"]
     if len(rows) < MIN_POSTS_FOR_EXAMPLES:

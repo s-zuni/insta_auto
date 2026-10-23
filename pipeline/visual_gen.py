@@ -53,7 +53,7 @@ def compose_reels_frame(
         return
 
     try:
-        from pipeline.text_utils import wrap_by_pixel_width
+        from pipeline.text_utils import sanitize_title, wrap_by_pixel_width
 
         CANVAS_W, CANVAS_H = 1080, 1920
         IMG_H = 608  # 1080 * 9 / 16 (반올림)
@@ -88,7 +88,7 @@ def compose_reels_frame(
                 return ImageFont.load_default()
 
         # 3. 제목 줄바꿈: 128px 기준 최대 2줄(이미지 영역 침범 방지). 넘치면 폰트를 줄여가며 2줄에 맞춘다.
-        clean_title = title.replace(chr(10), " ").strip()
+        clean_title = sanitize_title(title).replace(chr(10), " ").strip()
         max_title_width = CANVAS_W - 80
         title_size = TITLE_FONT_SIZE
         while True:

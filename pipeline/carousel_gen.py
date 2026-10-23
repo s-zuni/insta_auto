@@ -18,6 +18,8 @@ if sys.platform == "win32":
         pass
 
 from pipeline.script_gen import generate_json
+from pipeline.text_utils import sanitize_title
+from pipeline.cta import infer_cta_kind, pick_share_line, CTA_PLANS
 from pipeline.mbti_saju_content import MBTI_KEYWORDS, FIVE_ELEMENTS, DOMAIN_LABELS, MBTI_TYPES
 from pipeline.saju_knowledge import STEMS, ELEMENT_FLOW, detect_stem, stem_brief, general_brief
 
@@ -132,12 +134,12 @@ def generate_carousel_script(series: str, context: Optional[dict] = None, model_
     last_err = None
     for attempt in (1, 2):
         try:
-            return _call_llm(model_name, system_prompt, user_prompt)
+            return _ensure_caption_cta(_call_llm(model_name, system_prompt, user_prompt), series, context)
         except Exception as e:
             last_err = e
             print(f"[WARN] 캐러셀 대본 생성 시도 {attempt}/2 실패: {e}")
     print(f"[WARNING] 캐러셀 대본 생성 실패 ({last_err}). 폴백 대본 사용.")
-    return _fallback(series, context)
+    return _ensure_caption_cta(_normalize(_fallback(series, context)), series, context)
 
 
 def _call_llm(model_name: Optional[str], system_prompt: str, user_prompt: str) -> CarouselScript:
@@ -150,6 +152,32 @@ def _normalize(script: CarouselScript) -> CarouselScript:
     if len(script.slides) > MAX_SLIDES:
         # 마지막 CTA 슬라이드는 반드시 보존
         script.slides = script.slides[: MAX_SLIDES - 1] + [script.slides[-1]]
+    # 표지/제목/슬라이드 텍스트의 한자 제거 (폰트에 글리프가 없어 깨짐)
+    script.title = sanitize_title(script.title)
+    for sl in script.slides:
+        sl.headline = sanitize_title(sl.headline)
+        sl.body = sanitize_title(sl.body)
+    return script
+
+
+NL1 = chr(10)
+NL2 = chr(10) * 2
+
+
+def _ensure_caption_cta(script: CarouselScript, series: str, context: dict) -> CarouselScript:
+    """캡션에 '프로필 링크' 유도가 없으면 주제에 맞는 CTA(pipeline.cta)를 해시태그 앞에 붙인다."""
+    cap = script.instagram_caption or ""
+    if "프로필 링크" in cap:
+        return script
+    kind = infer_cta_kind(series, str(context.get("topic", "")) or script.title)
+    _, cta, _ = CTA_PLANS[kind][0]
+    # 캐러셀은 저장이 강한 형식이라 저장 유도 + 공유(DM) 유도 한 줄을 함께 붙인다
+    cta = f"📌 저장해두고 필요할 때 꺼내 보세요!{NL1}{pick_share_line(kind)[1]}{NL1}{cta}"
+    if "#" in cap:
+        head, tag = cap.split("#", 1)
+        script.instagram_caption = head.strip() + NL2 + cta + NL2 + "#" + tag
+    else:
+        script.instagram_caption = cap.strip() + NL2 + cta
     return script
 
 

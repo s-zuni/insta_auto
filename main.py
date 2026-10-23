@@ -25,8 +25,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from utils.ffmpeg_check import check_ffmpeg
 from pipeline.script_gen import generate_script, create_sample_script, ReelsScript
 from pipeline.mbti_saju_content import generate_mbti_saju_script
-from pipeline.text_utils import sanitize_narration
-from pipeline.tts_engine import generate_speech, FullAudioResult
+from pipeline.text_utils import sanitize_narration, sanitize_title
+from pipeline.tts_engine import generate_speech, FullAudioResult, LAST_TTS_INFO
+from pipeline.cta import has_share_line, infer_cta_kind
 from pipeline.visual_gen import generate_scene_images
 from pipeline.composer import compose_reels_video
 from pipeline.gdrive_uploader import upload_reels_assets_to_drive
@@ -94,12 +95,26 @@ def run_pipeline(
     # 나레이션에서 한자를 제거합니다. (제목/캡션은 시각 요소이므로 그대로 유지)
     for sc in script.scenes:
         sc.narration = sanitize_narration(sc.narration)
+    # 제목도 화면 폰트에 한자 글리프가 없어 깨지므로 제거 (렌더 단계에도 안전망이 있음)
+    script.title = sanitize_title(script.title)
+    script.hook = sanitize_narration(script.hook)
+
+    # A/B 비교용 변형 기록 (게시 성공 시 insights.record_post로 저장)
+    n_scenes = len(script.scenes)
+    avg_chars = round(sum(len(sc.narration) for sc in script.scenes) / max(n_scenes, 1), 1)
+    variant = {
+        "scenes": n_scenes, "scene_bucket": "<=6" if n_scenes <= 6 else ("7-8" if n_scenes <= 8 else "9+"),
+        "avg_chars_per_scene": avg_chars, "share_cta": has_share_line(script.scenes),
+        "cta_kind": infer_cta_kind(series, topic or script.title),
+    }
 
     # 2. 음성 합성
     print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 중...")
     t0 = time.time()
     audio_result: FullAudioResult = generate_speech(script.scenes)
     print(f"  ✅ 음성 합성 완료 ({time.time() - t0:.1f}초) | {audio_result.total_duration:.1f}초 분량")
+    variant.update(tts_engine=LAST_TTS_INFO.get("engine", ""), tts_rate=LAST_TTS_INFO.get("rate", ""),
+                   tts_voice=LAST_TTS_INFO.get("voice", ""), duration_s=round(audio_result.total_duration, 1))
 
     # 3. 비주얼 생성
     print("\n[3/7] 🎨 16:9 비주얼 생성 및 상단 제목 릴스 프레임 합성 중...")
@@ -190,7 +205,7 @@ def run_pipeline(
                     record_post(
                         insta_result["id"], "reel", series=series, mbti=mbti if series == "MBTI" else "",
                         topic=topic, title=script.title, hook=script.hook, trend_hint=trend_hint,
-                        permalink=insta_result.get("link", ""),
+                        permalink=insta_result.get("link", ""), variant=variant,
                     )
             except Exception as e:
                 print(f"  ⚠️ Instagram 게시 실패: {e}")
@@ -317,6 +332,7 @@ def run_carousel_pipeline(
                         insta_result["id"], "carousel", series=series, mbti=mbti if series == "MBTI" else "",
                         topic=topic, title=script.title, hook=script.slides[0].headline,
                         trend_hint=trend_hint, permalink=insta_result.get("link", ""),
+                        variant={"slides": len(script.slides), "share_cta": True},
                     )
             except Exception as e:
                 insta_result = {"error": str(e)}

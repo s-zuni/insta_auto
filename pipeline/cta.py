@@ -15,8 +15,10 @@
   '50% 할인', 이용자 수/만족도. (서비스 랜딩의 표시광고 이슈 소지 -> 운영자 확인 필요)
 - narration(음성)에는 한자 금지 — 아래 문구는 모두 한글.
 """
+import os
 import random
-from typing import Tuple
+import re
+from typing import Optional, Tuple
 
 # kind -> [(릴스 마지막 씬 나레이션, 인스타 캡션 CTA, Threads 답글 CTA 템플릿({url}))]
 # Threads 템플릿의 {url}은 kind에 따라 premium 또는 메인 주소로 채워진다(pick_threads_cta).
@@ -94,10 +96,45 @@ def infer_cta_kind(series: str = "", topic: str = "", category: str = "") -> str
     return "report3y"
 
 
+# kind -> [(나레이션 공유 유도, 캡션 공유 유도)]. 릴스는 공유(DM sends)가 확산 신호라 프로필 링크 CTA 앞에 한 줄 붙인다.
+# 링크 클릭 CTA와 행동이 둘이 되지 않도록 공유 문구는 짧게, 프로필 링크 문구가 항상 마지막(마무리)에 오게 한다.
+SHARE_LINES = {
+    "report3y": [
+        ("이 일간 친구가 떠올랐다면 지금 바로 보내주세요.", "📩 이 일간 친구한테 지금 바로 보내주세요!"),
+        ("주변에 딱 이런 사람 있죠? 그 친구한테 보내주세요.", "📩 딱 이런 사람 떠오르면 DM으로 보내주세요!"),
+    ],
+    "couple": [
+        ("이 조합 커플이라면 상대한테 이 영상을 보내주세요.", "📩 이 조합인 그 사람한테 보내주세요!"),
+    ],
+    "career": [
+        ("이직 고민 중인 친구한테 이 영상을 보내주세요.", "📩 일 고민하는 친구한테 보내주세요!"),
+    ],
+    "travel": [
+        ("같이 여행 갈 친구한테 이 영상을 보내주세요.", "📩 같이 여행 갈 친구한테 보내주세요!"),
+    ],
+    "mbti_saju": [
+        ("이 MBTI 친구가 떠올랐다면 바로 보내주세요.", "📩 이 MBTI 친구한테 보내주세요!"),
+    ],
+    "jamidosu": [
+        ("내 명궁이 궁금한 친구한테 보내주세요.", "📩 별자리 말고 명궁이 궁금한 친구한테 보내주세요!"),
+    ],
+    "tarot": [
+        ("지금 이 카드가 필요한 친구한테 보내주세요.", "📩 지금 이 말이 필요한 친구한테 보내주세요!"),
+    ],
+}
+
+
+def pick_share_line(kind: str) -> Tuple[str, str]:
+    """(나레이션 공유 유도, 캡션 공유 유도)"""
+    return random.choice(SHARE_LINES.get(kind) or SHARE_LINES["report3y"])
+
+
 def pick_reel_cta(series: str = "", topic: str = "") -> Tuple[str, str]:
-    """(나레이션 CTA, 캡션 CTA)"""
-    narr, cap, _ = random.choice(CTA_PLANS[infer_cta_kind(series, topic)])
-    return narr, cap
+    """(나레이션 CTA, 캡션 CTA) = 공유 유도 한 줄 + 프로필 링크 CTA"""
+    kind = infer_cta_kind(series, topic)
+    narr, cap, _ = random.choice(CTA_PLANS[kind])
+    share_narr, share_cap = pick_share_line(kind)
+    return f"{share_narr} {narr}", f"{share_cap}{chr(10)}{cap}"
 
 
 def pick_threads_cta(url: str, topic: str = "", category: str = "") -> str:
@@ -107,3 +144,53 @@ def pick_threads_cta(url: str, topic: str = "", category: str = "") -> str:
     _, _, tpl = random.choice(CTA_PLANS[kind])
     target = url if kind in _PREMIUM_KINDS else url.rsplit("/premium", 1)[0]
     return tpl.format(url=target)
+
+
+def _share_ratio() -> float:
+    """공유 CTA를 붙일 확률(0~1). A/B 실험용으로 SHARE_CTA_RATIO 환경변수(기본 1.0 = 항상)로 조절한다."""
+    try:
+        return min(max(float(os.getenv("SHARE_CTA_RATIO", "1.0")), 0.0), 1.0)
+    except ValueError:
+        return 1.0
+
+
+def has_share_line(scenes: list) -> bool:
+    """씬 나레이션에 공유 유도 문구(SHARE_LINES)가 들어 있는지 (A/B 변형 기록용)."""
+    texts = {n for lines in SHARE_LINES.values() for n, _ in lines}
+    return any((getattr(sc, "narration", "") or "") in texts for sc in scenes)
+
+
+def apply_reel_cta(scenes: list, caption: str, series: str = "", topic: str = "",
+                   use_share: Optional[bool] = None) -> Tuple[str, str]:
+    """릴스 끝에 [공유 유도 씬] + [프로필 링크 씬]을 각각 짧은 별도 씬으로 붙인다(빠른 전개 유지).
+    LLM이 쓴 마지막 씬(결론/반전)은 그대로 보존한다. 마지막 씬에 이미 '프로필' 안내가 있으면 그 문장만 걷어낸다.
+    use_share=None이면 SHARE_CTA_RATIO 확률로 공유 씬을 붙인다(A/B). 반환: (CTA 나레이션 전체, CTA 캡션)."""
+    kind = infer_cta_kind(series, topic)
+    link_narr, link_cap, _ = random.choice(CTA_PLANS[kind])
+    share_narr, share_cap = pick_share_line(kind)
+    if use_share is None:
+        use_share = random.random() < _share_ratio()
+    parts = ([(share_narr, 3)] if use_share else []) + [(link_narr, 4)]
+    if scenes:
+        last = scenes[-1]
+        body = (last.narration or "").strip()
+        if "프로필" in body:
+            head = body[: body.find("프로필")]
+            ends = [m.end() for m in re.finditer(r"[.!?]", head)]
+            body = head[: ends[-1]].strip() if ends else ""
+        if body:
+            last.narration = body
+        else:  # 결론 씬이 CTA뿐이었다면 첫 CTA 문장이 그 씬을 대신한다
+            last.narration, last.duration_estimate = parts[0]
+            parts = parts[1:]
+        nid = last.scene_id
+        for text, dur in parts:
+            nid += 1
+            # 같은 이미지가 반복되지 않도록 구도만 바꾼 프롬프트를 쓴다
+            scenes.append(last.model_copy(update={
+                "scene_id": nid, "narration": text, "duration_estimate": dur,
+                "visual_prompt": f"{last.visual_prompt}, different framing, close-up detail shot",
+            }))
+    narr = f"{share_narr} {link_narr}" if use_share else link_narr
+    cap = f"{share_cap}{chr(10)}{link_cap}" if use_share else link_cap
+    return narr, cap

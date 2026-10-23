@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from pipeline.script_gen import ReelsScript, Scene, generate_json
+from pipeline.text_utils import sanitize_title
 
 MBTI_TYPES = ["INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"]
 MBTI_KEYWORDS = {
@@ -37,7 +38,8 @@ FIVE_ELEMENTS = {
 REELS_PERSONA = """[릴스 바이럴 디렉터 페르소나]
 당신은 대한민국 2030 여성 타겟 인스타그램 릴스 & 유튜브 숏츠 100만 뷰 바이럴 전문 디렉터입니다.
 단순 정보 나열은 시청자가 1초 만에 넘겨버리므로, 극단적 호기심과 감정 몰입을 유발하는 구조로 기획합니다.
-전체 분량 30~45초 (씬 4~6개).
+전체 분량 25~35초, 씬 8~10개. 전개는 빠르게: 씬 1개 = 한 문장(공백 포함 25~40자, 길어도 55자), 1~3초마다 새 정보/새 장면.
+서론·부연·반복 금지, 접속사로 늘어지는 긴 문장 금지. 씬마다 정보 하나(공감 장면 → 팩트 → 반전 → 팁 순으로 속도감 있게).
 
 [1단계: 초반 1.5초 훅(Hook) 작성 공식 - 씬 1 필수 규칙]
 - 첫 문장(씬 1 narration)은 무조건 아래 3대 바이럴 공식 중 하나를 적용해 즉각적인 스와이프를 차단하세요:
@@ -64,10 +66,11 @@ REELS_PERSONA = """[릴스 바이럴 디렉터 페르소나]
 [narration 작성 규칙 - 절대 엄수]
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. 오직 순수 한글(및 필요시 숫자)만 사용합니다.
   (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)
+- 제목(title)도 한자 금지, 한글/영문/숫자만 사용 (화면 폰트에 한자 글리프가 없어 깨집니다. 예: "을목(乙木)" 대신 "을목").
 - 제목(title)은 공백 포함 16자 이내로 짧고 강렬하게 (화면에 큰 글씨로 2줄 표시)."""
 
-FIXED_SHORTFORM_CTA = "내 사주와 MBTI 상세 분석표는 프로필 링크에서 바로 확인해보세요!"
-FIXED_CAPTION_CTA = "👉 프로필 링크에서 내 사주와 MBTI 상세 분석표를 확인하세요!"
+FIXED_SHORTFORM_CTA = "내 사주와 MBTI를 겹쳐 본 분석은 프로필 링크에서 첫 분석 무료로 확인해보세요!"
+FIXED_CAPTION_CTA = "👉 프로필 링크에서 내 사주 x MBTI 첫 분석을 무료로 확인하세요! (가입 필요)"
 
 
 
@@ -104,10 +107,9 @@ def build_series_prompt(series: str, context: dict) -> str:
     return base
 
 
+# pipeline.cta 임포트 실패 시에만 쓰는 폴백 (서비스에서 확인된 문구만 사용)
 DYNAMIC_SHORTFORM_CTAS = [
-    ("내 사주와 MBTI 상세 분석표는 프로필 링크에서 바로 확인해보세요!", "👉 프로필 링크에서 내 사주와 MBTI 상세 분석표를 확인하세요!"),
-    ("나머지 순위와 내 대운 확인은 프로필 링크에 남겨뒀어요!", "👉 프로필 링크에서 나머지 순위와 내 대운을 무료로 확인하세요!"),
-    ("더 자세한 내 사주 오행 진단은 프로필 링크에서 1초 만에 확인하세요!", "👉 프로필 링크에서 내 사주 오행 무료 진단표를 확인하세요!"),
+    ("내 일간이 궁금하면 프로필 링크에서 가입 없이 30초 만에 무료로 확인해보세요!", "👉 프로필 링크에서 가입 없이 30초 무료 체험, 내 일간부터 확인하세요!"),
 ]
 
 
@@ -115,15 +117,15 @@ def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "
     """숏폼(릴스, 숏츠)의 마지막 씬 내레이션과 캡션에 고전환 CTA를 적용합니다."""
     # 영상마다 자연스럽게 순환하는 고전환 CTA 멘트 적용
     try:
-        from pipeline.cta import pick_reel_cta
-        chosen_short_cta, chosen_caption_cta = pick_reel_cta(series, topic or script.title)
+        from pipeline.cta import apply_reel_cta
+        # LLM이 쓴 마지막 씬(결론/반전)은 보존하고 그 뒤에 주제별 CTA를 붙인다
+        chosen_short_cta, chosen_caption_cta = apply_reel_cta(script.scenes, script.instagram_caption, series, topic or script.title)
     except Exception:
         chosen_short_cta, chosen_caption_cta = random.choice(DYNAMIC_SHORTFORM_CTAS)
-
-    if script.scenes:
-        script.scenes[-1].narration = chosen_short_cta
-        if script.scenes[-1].duration_estimate < 3:
-            script.scenes[-1].duration_estimate = 4
+        if script.scenes:
+            script.scenes[-1].narration = chosen_short_cta
+            if script.scenes[-1].duration_estimate < 3:
+                script.scenes[-1].duration_estimate = 4
 
     # 기존 일반 멘트가 있다면 고전환 멘트로 교체
     # LLM이 프롬프트의 기본 CTA를 그대로 쓴 경우, 주제별 CTA로 교체되도록 먼저 제거
@@ -145,7 +147,7 @@ def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "
     script.instagram_caption = script.instagram_caption.replace("#오늘의운세", "#운세").replace("#오늘운세", "#운세")
 
     # 제목 줄바꿈 제거 및 길이 제한
-    script.title = script.title.replace("\n", " ").strip()
+    script.title = sanitize_title(script.title.replace("\n", " "))
     if len(script.title) > 16:
         script.title = script.title[:16].strip()
     return script
@@ -159,9 +161,9 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
 JSON 스키마:
 - title: 릴스 제목 (16자 이내, 호기심 자극)
 - hook: 초반 3초 후킹 대사
-- scenes: 씬 리스트 4~6개 (scene_id, narration[한국어 구어체], visual_prompt[영문, 가로 16:9. 실제 한국인이 스마트폰으로 찍은 일상 사진처럼 묘사(나이대·상황·표정·소품 구체화, 씬마다 구도 변경). glowing/mystical/neon/cosmic/fantasy/일러스트/3D 금지. no text], duration_estimate)
-  * 마지막 씬 narration은 반드시 "{FIXED_SHORTFORM_CTA}" 로 작성
-- instagram_caption: 이모지 포함 + "{FIXED_CAPTION_CTA}" 포함 + 해시태그 10개 이상"""
+- scenes: 씬 리스트 8~10개 (scene_id, narration[한국어 구어체, 한 문장 25~40자], visual_prompt[영문, 가로 16:9. 실제 한국인이 스마트폰으로 찍은 일상 사진처럼 묘사(나이대·상황·표정·소품 구체화, 씬마다 구도 변경). glowing/mystical/neon/cosmic/fantasy/일러스트/3D 금지. no text], duration_estimate)
+  * 마지막 씬 narration은 반전/결론 한 줄로 마무리 (프로필 링크 CTA 문장은 시스템이 뒤에 자동으로 붙이므로 쓰지 말 것)
+- instagram_caption: 이모지 포함 + 해시태그 10개 이상 (프로필 링크 CTA 문구는 시스템이 자동 삽입)"""
     try:
         script = generate_json(system_prompt, user_prompt, ReelsScript, temperature=0.8, model_name=model_name)
         return _enforce_shortform_cta(script, series, str(context.get("topic", "")))

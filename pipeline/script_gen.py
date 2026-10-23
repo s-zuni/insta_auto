@@ -25,7 +25,7 @@ class Scene(BaseModel):
     )
     narration: str = Field(
         ...,
-        description="해당 씬에서 읽을 자연스러운 한국어 내레이션 대사. 듣기 편하고 명확한 구어체."
+        description="해당 씬에서 읽을 한국어 구어체 대사. 한 씬 = 한 문장(공백 포함 25~40자, 길어도 55자 이내), 읽는 데 2~4초. 한 씬에 정보 하나만."
     )
     visual_prompt: str = Field(
         ...,
@@ -33,7 +33,7 @@ class Scene(BaseModel):
     )
     duration_estimate: int = Field(
         ...,
-        description="해당 장면의 예상 재생 시간 (초 단위, 대사 길이에 따라 4~8초 내외)"
+        description="해당 장면의 예상 재생 시간 (초 단위, 대사 길이에 따라 2~4초 내외, 길어도 5초 이내)"
     )
 
 
@@ -48,7 +48,7 @@ class ReelsScript(BaseModel):
     )
     scenes: List[Scene] = Field(
         ...,
-        description="영상을 구성하는 씬 리스트 (총 4~7개 씬으로 전체 길이 30~50초 구성)"
+        description="영상을 구성하는 씬 리스트 (총 8~10개 씬으로 전체 길이 25~35초 구성, 씬이 짧고 빠르게 넘어가야 함)"
     )
     instagram_caption: str = Field(
         ...,
@@ -181,7 +181,7 @@ def generate_json(system_prompt: Optional[str], user_prompt: str, schema=None,
 
 SYSTEM_PROMPT = """
 당신은 인스타그램 릴스(Reels) 전문 숏폼 바이럴 디렉터이자 카피라이터입니다.
-주어진 주제를 바탕으로 초반 1.5초 이탈을 원천 차단하고 시청 지속 시간(완독율)과 저장/공유를 극대화하는 30~45초 분량의 9:16 세로 릴스 대본을 기획하세요.
+주어진 주제를 바탕으로 초반 1.5초 이탈을 원천 차단하고 시청 지속 시간(완독율)과 저장/공유를 극대화하는 25~35초 분량의 9:16 세로 릴스 대본을 기획하세요. 전개는 빠르게: 1~3초마다 화면과 정보가 바뀌어야 합니다.
 
 [제작 규칙]
 1. 구성 (시청 지속 시간 극대화):
@@ -189,11 +189,13 @@ SYSTEM_PROMPT = """
      [결핍/손실 회피형, 극단적 공감/반전형, 타겟 특정형] 중 하나로 시작하여 즉시 시선을 사로잡을 것.
    - 씬 2~4 (빠른 팩트 전개): 군더더기 없는 빠른 템포의 분석과 흥미 유지 + 친구 소환/댓글 유도 트리거.
    - 마지막 씬: 결핍을 해소할 프로필 링크 상세 확인 고전환 CTA.
-   - 전체 씬 수: 4~6개 씬 (총 러닝타임 30~45초).
+   - 전체 씬 수: 8~10개 씬 (총 러닝타임 25~35초). 씬 1개 = 한 문장(25~40자, 2~4초), 한 씬에 정보 하나.
+   - 서론·반복·부연 설명 금지. 모든 씬이 새 정보나 새 장면(공감 장면, 반전, 팁)을 던질 것. 접속사로 늘어지는 긴 문장 금지.
 2. 내레이션:
    - 자연스럽고 몰입감 높은 한국어 구어체 (~해요, ~거든요, ~답니다 등 리듬감 있게).
    - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. 오직 순수 한글(및 필요시 숫자/영문)만 사용합니다.
      (예: "토(土)" 대신 "토"만 사용 — TTS가 한글과 한자를 중복 발음하는 것을 방지하기 위함입니다.)
+   - title(화면 제목)에도 한자를 쓰지 마세요. 화면 폰트에 한자 글리프가 없어 깨집니다. 16자 이내.
 3. visual_prompt (FLUX / Imagen 가이드):
    - 반드시 '영문(English)'으로 작성.
    - 이미지는 16:9 가로 비율로 생성되어 릴스 프레임 중앙에 배치됩니다.
@@ -207,6 +209,9 @@ SYSTEM_PROMPT = """
 """
 
 
+from pipeline.text_utils import sanitize_title
+
+
 def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript:
     """
     주제(topic)를 받아 Gemini를 통해 구조화된 ReelsScript 객체를 반환합니다.
@@ -218,23 +223,25 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
     def _enforce_cta(sc: ReelsScript) -> ReelsScript:
         is_fortune = any(w in (topic + " " + sc.title) for w in ["사주", "운명", "운세", "타로", "신점", "자미두수", "궁합"])
         if is_fortune:
-            fixed_cta = "프로필 링크에서 당신의 모든 운명을 확인하세요!"
-            caption_cta = "👉 프로필 링크에서 당신의 모든 운명을 확인하세요!"
+            try:
+                from pipeline.cta import apply_reel_cta
+                _, caption_cta = apply_reel_cta(sc.scenes, sc.instagram_caption, "", topic or sc.title)
+            except Exception:
+                caption_cta = "👉 프로필 링크에서 내 일간부터 무료로 확인하세요!"
         else:
             fixed_cta = "프로필 링크에서 더 자세한 꿀팁과 전체 내용을 확인해보세요!"
             caption_cta = "👉 프로필 링크에서 더 자세한 꿀팁과 전체 내용을 확인하세요!"
-
-        if sc.scenes:
-            sc.scenes[-1].narration = fixed_cta
-            if sc.scenes[-1].duration_estimate < 3:
-                sc.scenes[-1].duration_estimate = 4
+            if sc.scenes:
+                sc.scenes[-1].narration = fixed_cta
+                if sc.scenes[-1].duration_estimate < 3:
+                    sc.scenes[-1].duration_estimate = 4
         if caption_cta not in sc.instagram_caption:
             if "#" in sc.instagram_caption:
                 parts = sc.instagram_caption.split("#", 1)
                 sc.instagram_caption = f"{parts[0].strip()}\n\n{caption_cta}\n\n#{parts[1]}"
             else:
                 sc.instagram_caption = f"{sc.instagram_caption.strip()}\n\n{caption_cta}"
-        sc.title = sc.title.replace("\n", " ").strip()
+        sc.title = sanitize_title(sc.title.replace("\n", " "))
         if len(sc.title) > 16:
             sc.title = sc.title[:16].strip()
         return sc

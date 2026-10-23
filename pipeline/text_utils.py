@@ -35,6 +35,14 @@ def sanitize_narration(text: str) -> str:
     return cleaned.strip()
 
 
+def sanitize_title(text: str) -> str:
+    """화면 표시용 제목/헤드라인에서 한자를 제거합니다.
+    Pretendard에는 한자 글리프가 없어 두부(□)로 깨지므로 "을목(乙木)" -> "을목" 처럼 한글만 남깁니다."""
+    if not text:
+        return text
+    return sanitize_narration(text).replace("( )", "").replace("()", "").strip()
+
+
 def split_into_clauses(text: str) -> List[str]:
     """문장부호/어미를 기준으로 나레이션을 자연스러운 구(clause) 단위로 분할합니다."""
     text = text.strip()
@@ -145,6 +153,23 @@ def align_word_times(
     return fixed
 
 
+HIGHLIGHT_KEYWORDS = {
+    "1위", "2위", "3위", "대박", "조심", "소름", "대운", "운세", "궁합", "후회", "비밀", "특징", "팩트",
+    "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+    "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"
+}
+
+
+def _colorize_token(word: str, kf_prefix: str = "") -> str:
+    """핵심 키워드(MBTI, 순위, 자극적 단어)에 골드/옐로우 컬러 코드를 부여합니다."""
+    clean_w = re.sub(r"[^\w가-힣A-Za-z]", "", word).upper()
+    is_highlight = clean_w in HIGHLIGHT_KEYWORDS or any(kw in clean_w for kw in ("1위", "대박", "소름", "조심", "대운"))
+    if is_highlight:
+        # 노란색(&H002BF7FF&) 액센트 부여 후 원래 흰색(&H00FFFFFF&)으로 복귀
+        return f"{kf_prefix}{{\\c&H002BF7FF&}}{word}{{\\c&H00FFFFFF&}}"
+    return f"{kf_prefix}{word}"
+
+
 def build_karaoke_blocks(
     narration: str,
     word_timings: list,
@@ -171,23 +196,6 @@ def build_karaoke_blocks(
         wrapped = wrap_by_pixel_width(clause, font, max_width)
         for i in range(0, len(wrapped), max_lines):
             blocks.append([line.split() for line in wrapped[i:i + max_lines]])
-
-HIGHLIGHT_KEYWORDS = {
-    "1위", "2위", "3위", "대박", "조심", "소름", "대운", "운세", "궁합", "후회", "비밀", "특징", "팩트",
-    "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
-    "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"
-}
-
-
-def _colorize_token(word: str, kf_prefix: str = "") -> str:
-    """핵심 키워드(MBTI, 순위, 자극적 단어)에 골드/옐로우 컬러 코드를 부여합니다."""
-    clean_w = re.sub(r"[^\w가-힣A-Za-z]", "", word).upper()
-    is_highlight = clean_w in HIGHLIGHT_KEYWORDS or any(kw in clean_w for kw in ("1위", "대박", "소름", "조심", "대운"))
-    if is_highlight:
-        # 노란색(&H002BF7FF&) 액센트 부여 후 원래 흰색(&H00FFFFFF&)으로 복귀
-        return f"{kf_prefix}{{\\c&H002BF7FF&}}{word}{{\\c&H00FFFFFF&}}"
-    return f"{kf_prefix}{word}"
-
 
     out: List[Tuple[float, float, str]] = []
     wi = 0
