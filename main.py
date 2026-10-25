@@ -1,6 +1,6 @@
 """
 Instagram Reels & YouTube Shorts Automation Pipeline Orchestrator.
-MBTI x Saju Content -> TTS -> Visuals -> FFmpeg Composition -> Google Drive Upload -> Instagram Reels -> YouTube Shorts
+MBTI x Saju Content -> TTS (-30dB Auto-Cut) -> Hybrid Visuals (Google Flow / Free HD Video + AI Image) -> FFmpeg Composition -> Google Drive Upload -> Instagram Reels -> YouTube Shorts
 """
 import os
 import sys
@@ -109,7 +109,7 @@ def run_pipeline(
     }
 
     # 2. 음성 합성
-    print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 중...")
+    print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 및 -30dB 무음 칼컷 중...")
     t0 = time.time()
     audio_result: FullAudioResult = generate_speech(script.scenes)
     print(f"  ✅ 음성 합성 완료 ({time.time() - t0:.1f}초) | {audio_result.total_duration:.1f}초 분량")
@@ -117,19 +117,20 @@ def run_pipeline(
                    tts_voice=LAST_TTS_INFO.get("voice", ""), duration_s=round(audio_result.total_duration, 1))
 
     # 3. 비주얼 생성
-    print("\n[3/7] 🎨 16:9 비주얼 생성 및 상단 제목 릴스 프레임 합성 중...")
+    print("\n[3/7] 🎨 하이브리드 비주얼(영상+이미지) 생성 및 상단 제목 릴스 프레임 합성 중...")
     if mock_images:
         print("  ⚠️ [--mock-images 활성화] 실제 AI 사진 생성을 건너뛰고 단색 플레이스홀더를 사용합니다.")
     else:
         engine = os.getenv("IMAGE_ENGINE", "gemini").upper()
-        print(f"  ✨ 실제 맞춤 AI 사진 생성 모드로 실행합니다. (엔진: {engine})")
+        print(f"  ✨ 실제 맞춤 비주얼 생성 모드로 실행합니다. (엔진: {engine})")
     t0 = time.time()
     visual_result = generate_scene_images(script.scenes, force_mock=mock_images, title=script.title)
     image_paths = visual_result.image_paths
+    variant["video_scenes"] = len(visual_result.video_paths)
     print(f"  ✅ 비주얼 준비 완료 ({time.time() - t0:.1f}초)")
 
     # 4. 영상 합성
-    print("\n[4/7] 🎬 Ken Burns + 자막 하드코딩 영상 합성 중...")
+    print("\n[4/7] 🎬 하이브리드 비디오/다이내믹 모션 + SFX + 자막 하드코딩 영상 합성 중...")
     t0 = time.time()
     bgm_path = pick_bgm(series, seed=script.title)
     if bgm_path:
@@ -141,13 +142,22 @@ def run_pipeline(
         scene_results=audio_result.scene_results,
         output_video_path=output_path,
         bgm_path=bgm_path,
+        video_paths=visual_result.video_paths,
     )
     print(f"  ✅ 영상 렌더링 완료 ({time.time() - t0:.1f}초)")
 
-    # 프로필 그리드/릴스 커버용 프레임 (이미지 없이 다크 배경에 제목만 정가운데)
+    # 프로필 그리드/릴스 커버용 프레임 (호기심 극대화 9:16 풀스크린 고CTR 썸네일)
     cover_path = None
     try:
-        cover_path = build_reel_cover(None, script.title, Path(output_path).parent / "cover.jpg")
+        raw_cover_candidate = Path("assets/images/scene_01_raw.jpg")
+        if not raw_cover_candidate.is_file() and visual_result.image_paths:
+            raw_cover_candidate = Path(visual_result.image_paths[0])
+        cover_path = build_reel_cover(
+            raw_image=raw_cover_candidate if raw_cover_candidate.is_file() else None,
+            title=script.title,
+            out_path=Path(output_path).parent / "cover.jpg",
+            hook_text=script.hook,
+        )
     except Exception as e:
         print(f"  ⚠️ 커버 프레임 생성 실패(무시): {e}")
 
@@ -256,6 +266,7 @@ def run_pipeline(
         "instagram": insta_result,
         "youtube": youtube_result,
         "placeholder_scene_count": visual_result.placeholder_count,
+        "video_scene_count": len(visual_result.video_paths),
         "total_scene_count": len(image_paths),
         "publish_blocked": block_publish,
     }
@@ -394,7 +405,7 @@ def main():
             mbti_types = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
                           "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
             is_mbti = any(m in upper_topic for m in mbti_types) or ("MBTI" in upper_topic) or ("엠비티아이" in args.topic)
-            is_saju = any(w in args.topic for w in ["사주", "일간", "오행", "운세", "타로", "신점", "자미두수", "궁합"])
+            is_saju = any(w in args.topic for w in ["사주", "일간", "오행", "운세", "타로", "신점", "자미두수", "궁합", "도화살", "대운"])
             if is_mbti:
                 series = "MBTI"
             elif is_saju:

@@ -1,8 +1,10 @@
 """
-Video Composition Engine using FFmpeg.
+Video Composition Engine using FFmpeg (Hybrid Video + Dynamic Image Motion + SFX).
 Features:
-- Ultra-lightweight Ken Burns motion effect (crop + scale, <30MB RAM usage)
+- Hybrid Scene Rendering: Real MP4 video clips (Google Flow / Pexels HD) overlaid into the 16:9 strip
+  + Ultra-lightweight dynamic Ken Burns motion effect for image scenes (crop + scale, <30MB RAM usage)
 - Guaranteed zero OOM on resource-constrained containers (Railway 512MB RAM)
+- Procedural micro-SFX mixing (Scene 1 hook pop & reveal chime)
 - ASS / SRT subtitle generation and hardsub burn-in
 - 1080x1920 9:16 vertical Reels formatting
 """
@@ -12,7 +14,7 @@ import sys
 import json
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from PIL import ImageFont
 
@@ -159,6 +161,115 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     print(f"[SUBTITLE] 자막 생성 완료: {output_ass_path.name}")
 
 
+def _prepare_scene_audio_with_sfx(
+    audio_path: str,
+    scene_id: int,
+    total_scenes: int,
+    temp_dir: Path,
+    ffmpeg_bin: str,
+) -> str:
+    """
+    초반 3초 후킹(씬 1) 및 반전 포인트(끝에서 두 번째 씬)에 마이크로 효과음(SFX)을 믹스합니다.
+    ENABLE_SFX=false 로 비활성화 가능하며, 실패 시 원본 오디오 경로를 그대로 반환합니다.
+    """
+    if os.getenv("ENABLE_SFX", "true").strip().lower() in ("0", "false", "no"):
+        return audio_path
+
+    try:
+        from pipeline.sfx_gen import ensure_default_sfx
+        sfx_map = ensure_default_sfx()
+        sfx_file = None
+        sfx_vol = 0.25
+        if scene_id == 1:
+            sfx_file = sfx_map.get("hook_pop")
+            sfx_vol = 0.30
+        elif total_scenes >= 5 and scene_id == total_scenes - 2:
+            sfx_file = sfx_map.get("ding_reveal")
+            sfx_vol = 0.22
+
+        if not sfx_file or not sfx_file.is_file():
+            return audio_path
+
+        mixed_audio = temp_dir / f"audio_sfx_{scene_id:02d}.mp3"
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-i", str(audio_path),
+            "-i", str(sfx_file),
+            "-filter_complex",
+            f"[1:a]volume={sfx_vol:.2f}[sfx];[0:a][sfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+            "-map", "[aout]",
+            "-c:a", "libmp3lame", "-b:a", "192k",
+            str(mixed_audio),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode == 0 and mixed_audio.is_file() and mixed_audio.stat().st_size > 500:
+            return str(mixed_audio)
+    except Exception:
+        pass
+    return audio_path
+
+
+def render_video_scene_clip(
+    frame_image_path: str,
+    video_path: str,
+    audio_path: str,
+    duration: float,
+    output_clip_path: Path,
+    scene_id: int,
+    ffmpeg_bin: str,
+    fps: int = 30
+) -> bool:
+    """
+    실제 움직이는 MP4 비디오 소스(Google Flow / Pexels HD 등)를 1080x1920 9:16 세로 풀스크린으로
+    스케일/크롭하고, 상단 플로팅 훅 헤더 및 시네마틱 비네팅 오버레이를 얹어 렌더링합니다.
+    """
+    overlay_path = Path(frame_image_path).parent / "shorts_overlay.png"
+    has_overlay = overlay_path.is_file()
+
+    if has_overlay:
+        filter_graph = (
+            f"[1:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,fps={fps},setsar=1[vid];"
+            f"[0:v]scale=1080:1920[ov];"
+            f"[vid][ov]overlay=0:0:shortest=1[v]"
+        )
+        overlay_input = str(overlay_path)
+    else:
+        filter_graph = (
+            f"[1:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,fps={fps},setsar=1[vid];"
+            f"[0:v][vid]overlay=0:0:shortest=1[v]"
+        )
+        overlay_input = str(frame_image_path)
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-loop", "1",
+        "-t", f"{duration:.3f}",
+        "-i", overlay_input,
+        "-stream_loop", "-1",
+        "-t", f"{duration:.3f}",
+        "-i", str(video_path),
+        "-i", str(audio_path),
+        "-filter_complex", filter_graph,
+        "-map", "[v]", "-map", "2:a",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-threads", "2",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-t", f"{duration:.3f}",
+        str(output_clip_path),
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode == 0 and output_clip_path.is_file() and output_clip_path.stat().st_size > 1000:
+        return True
+    print(f"  [WARN] 비디오 씬 {scene_id} 렌더링 실패, 다이내믹 줌 이미지 모드로 자동 폴백합니다.")
+    return False
+
+
 def render_scene_clip(
     image_path: str,
     audio_path: str,
@@ -169,50 +280,82 @@ def render_scene_clip(
     fps: int = 30
 ):
     """
-    단일 씬에 대해 초경량 crop+scale 기반 Ken Burns 효과와 오디오를 합성합니다.
-    - 메모리 점유율 < 30MB 로 Railway/클라우드 무료 티어(512MB RAM)에서도 절대 OOM이 발생하지 않습니다.
+    단일 이미지 씬에 대해 9:16 풀스크린(1080x1920) 기준 초경량 crop+scale 다이내믹 카메라 모션과
+    상단 플로팅 훅 헤더 오버레이, 오디오를 합성합니다.
     """
     total_frames = max(int(duration * fps), 1)
 
-    # 이즈인아웃(사인 곡선) 진행률: 시작/끝은 느리고 중간은 빠르게 움직여 기계적인 느낌을 줄임
+    # 이즈인아웃(사인 곡선) 진행률: 시작/끝은 부드럽고 중간은 다이내믹하게 이동
     ease = f"(0.5-0.5*cos(PI*n/{total_frames}))"
 
-    # 홀수 씬: 서서히 줌인 (1.0 -> 1.18), 짝수 씬: 서서히 줌아웃 (1.18 -> 1.0)
-    # 줌은 중앙 16:9 이미지 스트립에만 적용하고, 제목/배경은 고정(자막은 이후 ass 필터로 별도 하드번인).
-    # crop의 w/h는 설정 시 1회만 평가되므로 프레임별 평가(eval=frame)가 되는 scale로 확대한 뒤 중앙을 잘라낸다.
-    if scene_id % 2 == 1:
-        zoom = f"(1+0.18*{ease})"
+    # 씬 1(초반 3초 훅): 22% 펀치인 줌으로 즉각적 스크롤 정지 유도
+    # 홀수 씬: 서서히 줌인 (1.0 -> 1.15), 짝수 씬: 서서히 줌아웃 (1.15 -> 1.0)
+    if scene_id == 1:
+        zoom = f"(1+0.22*sin(PI/2*min(n/{max(total_frames*0.75, 1):.1f},1)))"
+    elif scene_id % 2 == 1:
+        zoom = f"(1+0.15*{ease})"
     else:
-        zoom = f"(1.18-0.18*{ease})"
+        zoom = f"(1.15-0.15*{ease})"
 
-    img_h = 608
-    img_y = (1920 - img_h) // 2
-    filter_graph = (
-        f"[0:v]split[base][strip];"
-        f"[strip]crop=1080:{img_h}:0:{img_y},"
-        f"scale=w='trunc(1080*{zoom}/2)*2':h='trunc({img_h}*{zoom}/2)*2':eval=frame:flags=bicubic,"
-        f"crop=1080:{img_h}:(in_w-1080)/2:(in_h-{img_h})/2[z];"
-        f"[base][z]overlay=0:{img_y}[v]"
-    )
+    img_dir = Path(image_path).parent
+    raw_img_candidate = img_dir / f"scene_{scene_id:02d}_raw.jpg"
+    bg_input = str(raw_img_candidate) if raw_img_candidate.is_file() else str(image_path)
+    overlay_path = img_dir / "shorts_overlay.png"
+    has_overlay = overlay_path.is_file() and bg_input != str(image_path)
 
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-loop", "1",
-        "-t", f"{duration:.3f}",
-        "-i", str(image_path),
-        "-i", str(audio_path),
-        "-filter_complex", filter_graph,
-        "-map", "[v]", "-map", "1:a",
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-threads", "2",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        str(output_clip_path)
-    ]
+    if has_overlay:
+        filter_graph = (
+            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+            f"scale=w='trunc(1080*{zoom}/2)*2':h='trunc(1920*{zoom}/2)*2':eval=frame:flags=bicubic,"
+            f"crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2[bg];"
+            f"[1:v]scale=1080:1920[ov];"
+            f"[bg][ov]overlay=0:0[v]"
+        )
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-loop", "1",
+            "-t", f"{duration:.3f}",
+            "-i", bg_input,
+            "-loop", "1",
+            "-t", f"{duration:.3f}",
+            "-i", str(overlay_path),
+            "-i", str(audio_path),
+            "-filter_complex", filter_graph,
+            "-map", "[v]", "-map", "2:a",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-threads", "2",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_clip_path)
+        ]
+    else:
+        filter_graph = (
+            f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+            f"scale=w='trunc(1080*{zoom}/2)*2':h='trunc(1920*{zoom}/2)*2':eval=frame:flags=bicubic,"
+            f"crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2[v]"
+        )
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-loop", "1",
+            "-t", f"{duration:.3f}",
+            "-i", bg_input,
+            "-i", str(audio_path),
+            "-filter_complex", filter_graph,
+            "-map", "[v]", "-map", "1:a",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-threads", "2",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_clip_path)
+        ]
 
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
@@ -220,7 +363,7 @@ def render_scene_clip(
         raise RuntimeError(f"FFmpeg 씬 {scene_id} 클립 생성 실패 (code {res.returncode}):\n{err_msg}")
 
 
-TRANSITION_DUR = 0.28  # 씬 전환 크로스페이드 길이(초) - 릴스 특유의 빠른 템포에 맞춘 짧은 디졸브
+TRANSITION_DUR = 0.24  # 씬 전환 크로스페이드 길이(초) - 100만 바이럴 릴스의 빠른 템포에 맞춘 짧은 디졸브
 
 
 def _concat_copy_merge(clip_paths: List[Path], temp_dir: Path, ffmpeg_bin: str, output_path: Path):
@@ -312,10 +455,12 @@ def compose_reels_video(
     scene_results: list,
     output_video_path: Optional[str | Path] = None,
     keep_temp: bool = False,
-    bgm_path: Optional[str | Path] = None
+    bgm_path: Optional[str | Path] = None,
+    video_paths: Optional[Dict[int, str]] = None,
 ) -> Path:
     """
-    씬별 이미지와 음성을 합성하고, 자막을 번인(Hardcode)하여 최종 릴스 영상을 출력합니다.
+    씬별 비디오(Google Flow / Pexels HD) 또는 이미지와 음성을 하이브리드 합성하고,
+    효과음(SFX) 및 카라오케 자막을 번인(Hardcode)하여 최종 릴스 영상을 출력합니다.
     """
     ffmpeg_bin = get_ffmpeg_path()
     if not ffmpeg_bin:
@@ -330,26 +475,50 @@ def compose_reels_video(
     temp_dir = output_video_path.parent / "temp_clips"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[COMPOSER] 총 {len(scene_results)}개 씬 비디오 클립 렌더링 시작...")
+    total_scenes = len(scene_results)
+    print(f"[COMPOSER] 총 {total_scenes}개 씬 하이브리드 비디오 클립 렌더링 시작...")
     clip_paths: List[Path] = []
     durations: List[float] = []
+    video_map = dict(video_paths or {})
 
-    # 1. 씬별 개별 클립 렌더링
+    # 1. 씬별 개별 클립 렌더링 (비디오 소스가 있으면 비디오 오버레이, 없으면 다이내믹 Ken Burns)
     for idx, (img_p, sc) in enumerate(zip(image_paths, scene_results)):
         scene_id = int(_get_field(sc, "scene_id", idx + 1))
         duration = float(_get_field(sc, "duration", 5.0))
-        audio_p = str(_get_field(sc, "audio_path", ""))
+        raw_audio_p = str(_get_field(sc, "audio_path", ""))
+        audio_p = _prepare_scene_audio_with_sfx(raw_audio_p, scene_id, total_scenes, temp_dir, ffmpeg_bin)
+
+        # video_paths 인자가 없더라도 assets/videos/scene_XX_raw.mp4 가 존재하면 자동 감지
+        vid_p = video_map.get(scene_id)
+        if not vid_p:
+            auto_vid = Path(img_p).resolve().parent.parent / "videos" / f"scene_{scene_id:02d}_raw.mp4"
+            if auto_vid.is_file():
+                vid_p = str(auto_vid)
 
         clip_p = temp_dir / f"clip_{scene_id:02d}.mp4"
-        print(f"  [RENDER] 씬 {scene_id} ({duration:.2f}초) Ken Burns 클립 생성 중...")
-        render_scene_clip(
-            image_path=img_p,
-            audio_path=audio_p,
-            duration=duration,
-            output_clip_path=clip_p,
-            scene_id=scene_id,
-            ffmpeg_bin=ffmpeg_bin
-        )
+        rendered_video = False
+        if vid_p and Path(vid_p).is_file():
+            print(f"  [RENDER] 씬 {scene_id} ({duration:.2f}초) 🎬 실제 비디오 소스 오버레이 클립 생성 중...")
+            rendered_video = render_video_scene_clip(
+                frame_image_path=img_p,
+                video_path=vid_p,
+                audio_path=audio_p,
+                duration=duration,
+                output_clip_path=clip_p,
+                scene_id=scene_id,
+                ffmpeg_bin=ffmpeg_bin,
+            )
+
+        if not rendered_video:
+            print(f"  [RENDER] 씬 {scene_id} ({duration:.2f}초) ✨ 다이내믹 모션 클립 생성 중...")
+            render_scene_clip(
+                image_path=img_p,
+                audio_path=audio_p,
+                duration=duration,
+                output_clip_path=clip_p,
+                scene_id=scene_id,
+                ffmpeg_bin=ffmpeg_bin,
+            )
         clip_paths.append(clip_p)
         durations.append(duration)
 
@@ -428,6 +597,9 @@ def compose_reels_video(
             for c in clip_paths:
                 if c.is_file():
                     c.unlink()
+            for sfx_tmp in temp_dir.glob("audio_sfx_*.mp3"):
+                if sfx_tmp.is_file():
+                    sfx_tmp.unlink()
             if merged_temp_video.is_file():
                 merged_temp_video.unlink()
             concat_list_file = temp_dir / "concat_list.txt"

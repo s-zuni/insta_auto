@@ -65,7 +65,7 @@ def main():
     print("\n🚀 웹 브라우저에서 유튜브 계정 인증 창이 열립니다...")
     print("   (숏츠를 업로드할 유튜브 채널을 선택해 승인해 주세요.)\n")
 
-    creds = flow.run_local_server(port=8080, prompt="consent", access_type="offline")
+    creds = flow.run_local_server(port=8080, prompt="select_account consent", access_type="offline")
 
     # 채널 정보 조회
     channel_name = "알 수 없음"

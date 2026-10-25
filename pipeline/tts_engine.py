@@ -2,6 +2,7 @@
 TTS Synthesis Module for Instagram Reels Pipeline.
 Primary: Google Cloud Text-to-Speech (Neural2 / Journey) with SSML timepoints.
 Fallback: Edge TTS (Korean Neural) with word-level boundary synchronization.
+Includes FFmpeg -30dB silence auto-cut (0.1s precision) & optional ElevenLabs plugin.
 """
 import os
 import sys
@@ -26,18 +27,18 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# 영상마다 랜덤 선택되는 목소리 프리셋(남/여 + 톤 변화). rate/pitch는 재미있는 톤 연출용.
+# 영상마다 랜덤 선택되는 목소리 프리셋(남/여 + 톤 변화). rate/pitch는 쇼츠 특유의 쫀쫀한 텐션 연출용.
 EDGE_VOICE_PRESETS = [
-    {"voice": "ko-KR-SunHiNeural", "rate": "+14%", "pitch": "+0Hz"},     # 여성, 경쾌
-    {"voice": "ko-KR-SunHiNeural", "rate": "+8%", "pitch": "+6Hz"},     # 여성, 하이톤 수다
-    {"voice": "ko-KR-InJoonNeural", "rate": "+14%", "pitch": "+0Hz"},    # 남성, 텐션업
-    {"voice": "ko-KR-InJoonNeural", "rate": "+6%", "pitch": "-4Hz"},    # 남성, 능청스러운 저음
+    {"voice": "ko-KR-SunHiNeural", "rate": "+16%", "pitch": "+0Hz"},     # 여성, 경쾌·쇼츠 호흡
+    {"voice": "ko-KR-SunHiNeural", "rate": "+12%", "pitch": "+5Hz"},     # 여성, 하이톤 공감
+    {"voice": "ko-KR-InJoonNeural", "rate": "+16%", "pitch": "+0Hz"},    # 남성, 텐션업 팩트폭격
+    {"voice": "ko-KR-InJoonNeural", "rate": "+10%", "pitch": "-3Hz"},    # 남성, 몰입감 있는 저음
 ]
 GOOGLE_VOICE_PRESETS = [
-    {"voice": "ko-KR-Neural2-A", "rate": 1.14, "pitch": 1.0},   # 여성, 경쾌
-    {"voice": "ko-KR-Neural2-B", "rate": 1.08, "pitch": 3.0},    # 여성, 하이톤
-    {"voice": "ko-KR-Neural2-C", "rate": 1.14, "pitch": 0.0},   # 남성, 텐션업
-    {"voice": "ko-KR-Neural2-C", "rate": 1.06, "pitch": -3.0},  # 남성, 능청스러운 저음
+    {"voice": "ko-KR-Neural2-A", "rate": 1.16, "pitch": 1.0},   # 여성, 경쾌
+    {"voice": "ko-KR-Neural2-B", "rate": 1.12, "pitch": 2.5},   # 여성, 하이톤
+    {"voice": "ko-KR-Neural2-C", "rate": 1.16, "pitch": 0.0},   # 남성, 텐션업
+    {"voice": "ko-KR-Neural2-C", "rate": 1.10, "pitch": -2.5},  # 남성, 몰입감 저음
 ]
 
 
@@ -436,9 +437,184 @@ def synthesize_with_gtts_fallback(
 LAST_TTS_INFO: dict = {}
 
 
+def trim_audio_silence_ffmpeg(
+    audio_path: Path,
+    threshold_db: int = -30,
+    stop_duration: float = 0.10,
+    leave_silence: float = 0.04,
+) -> float:
+    """
+    보이스 파일의 무음 구간(기본 -30dB 이하)을 FFmpeg silenceremove 필터로 0.1초 단위 자동 컷편집합니다.
+    - 문장 시작 앞의 숨소리/공백 제거 + 문장 중간/끝의 늘어지는 호흡을 칼같이 당겨 초반 3초 이탈을 방지합니다.
+    - 편집 후 실제 재생 시간(초)을 반환합니다.
+    """
+    import subprocess
+    from utils.ffmpeg_check import get_ffmpeg_path
+
+    if not audio_path.is_file():
+        return 0.0
+
+    ffmpeg_bin = get_ffmpeg_path() or "ffmpeg"
+    trimmed_tmp = audio_path.parent / f"{audio_path.stem}_trimmed{audio_path.suffix}"
+    af_filter = (
+        f"silenceremove=start_periods=1:start_duration=0.02:start_threshold={threshold_db}dB:"
+        f"stop_periods=-1:stop_duration={stop_duration:.2f}:stop_threshold={threshold_db}dB:"
+        f"stop_silence={leave_silence:.2f},"
+        f"apad=pad_dur=0.04"
+    )
+    cmd = [
+        ffmpeg_bin, "-y",
+        "-i", str(audio_path),
+        "-af", af_filter,
+        "-c:a", "libmp3lame", "-b:a", "192k",
+        str(trimmed_tmp),
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode == 0 and trimmed_tmp.is_file() and trimmed_tmp.stat().st_size > 500:
+        new_dur = get_audio_duration(str(trimmed_tmp))
+        # 너무 짧게 잘린 비정상 케이스 방어 (최소 0.4초 이상일 때만 교체)
+        if new_dur >= 0.4:
+            trimmed_tmp.replace(audio_path)
+            return new_dur
+    if trimmed_tmp.is_file():
+        try:
+            trimmed_tmp.unlink()
+        except Exception:
+            pass
+    return get_audio_duration(str(audio_path))
+
+
+def _apply_silence_trim_to_result(result: FullAudioResult, output_dir: Path) -> FullAudioResult:
+    """
+    생성된 전체 씬 오디오에 -30dB 무음 자동 칼컷을 일괄 적용하고,
+    줄어든 길이에 맞춰 씬 타임라인 및 카라오케 단어 타이밍(word_timings)을 정밀 재정렬합니다.
+    """
+    if os.getenv("TRIM_SILENCE", "true").strip().lower() in ("0", "false", "no"):
+        return result
+
+    threshold_db = int(os.getenv("SILENCE_THRESHOLD_DB", "-30"))
+    saved_total = 0.0
+    current_offset = 0.0
+
+    for sc in result.scene_results:
+        old_dur = max(float(sc.duration), 0.001)
+        old_start = float(sc.start_time)
+        new_dur = trim_audio_silence_ffmpeg(Path(sc.audio_path), threshold_db=threshold_db)
+        if new_dur <= 0:
+            new_dur = old_dur
+
+        saved_total += max(0.0, old_dur - new_dur)
+        scale = new_dur / old_dur
+
+        new_timings: List[WordTiming] = []
+        for wt in sc.word_timings:
+            rel_s = max(0.0, float(wt.start_time) - old_start) * scale
+            rel_e = max(rel_s + 0.02, (float(wt.end_time) - old_start) * scale)
+            new_timings.append(
+                WordTiming(
+                    word=wt.word,
+                    start_time=round(current_offset + min(rel_s, new_dur), 3),
+                    end_time=round(current_offset + min(rel_e, new_dur), 3),
+                )
+            )
+
+        sc.start_time = round(current_offset, 3)
+        sc.duration = round(new_dur, 3)
+        sc.end_time = round(current_offset + new_dur, 3)
+        sc.word_timings = new_timings
+        current_offset += new_dur
+
+    full_audio_path = output_dir / "full_narration.mp3"
+    _concatenate_audio_files([r.audio_path for r in result.scene_results], full_audio_path)
+    result.total_duration = round(get_audio_duration(str(full_audio_path)), 3)
+
+    timing_json_path = Path(result.timing_json_path)
+    with open(timing_json_path, "w", encoding="utf-8") as f:
+        f.write(result.model_dump_json(indent=2))
+
+    print(f"  ✂️ [AUDIO-CUT] -30dB 무음 구간 자동 칼컷 완료 (단축된 늘어짐: -{saved_total:.2f}초 -> 최종 {result.total_duration:.2f}초)")
+    return result
+
+
+def synthesize_with_elevenlabs(
+    scenes: list,
+    output_dir: Path,
+    api_key: str,
+    voice_id: str = "EXAVITQu4vr4xnSDxMaL",
+) -> FullAudioResult:
+    """
+    ElevenLabs Multilingual v2 API를 사용해 초고몰입 AI 보이스를 생성합니다.
+    (환경변수 ELEVENLABS_API_KEY 설정 시 활성화)
+    """
+    import requests
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scene_results: List[SceneAudioResult] = []
+    current_time_offset = 0.0
+    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+
+    for sc in scenes:
+        scene_id = getattr(sc, "scene_id", sc.get("scene_id") if isinstance(sc, dict) else 1)
+        narration = getattr(sc, "narration", sc.get("narration") if isinstance(sc, dict) else "")
+        scene_path = output_dir / f"scene_{scene_id:02d}.mp3"
+
+        resp = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "text": narration,
+                "model_id": model_id,
+                "voice_settings": {"stability": 0.45, "similarity_boost": 0.80, "style": 0.35, "use_speaker_boost": True},
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200 or len(resp.content) < 1000:
+            raise RuntimeError(f"ElevenLabs HTTP {resp.status_code}: {resp.text[:200]}")
+
+        scene_path.write_bytes(resp.content)
+        duration = get_audio_duration(str(scene_path))
+        start_time = current_time_offset
+        end_time = current_time_offset + duration
+
+        words = narration.split()
+        word_dur = duration / max(len(words), 1)
+        timings = [
+            WordTiming(word=w, start_time=round(start_time + i * word_dur, 3), end_time=round(start_time + (i + 1) * word_dur, 3))
+            for i, w in enumerate(words)
+        ]
+        scene_results.append(
+            SceneAudioResult(
+                scene_id=scene_id,
+                audio_path=str(scene_path.resolve()),
+                duration=round(duration, 3),
+                start_time=round(start_time, 3),
+                end_time=round(end_time, 3),
+                narration=narration,
+                word_timings=timings,
+            )
+        )
+        current_time_offset += duration
+
+    full_audio_path = output_dir / "full_narration.mp3"
+    _concatenate_audio_files([r.audio_path for r in scene_results], full_audio_path)
+    total_duration = get_audio_duration(str(full_audio_path))
+    timing_json_path = output_dir / "timing_info.json"
+    result = FullAudioResult(
+        audio_path=str(full_audio_path.resolve()),
+        total_duration=round(total_duration, 3),
+        scene_results=scene_results,
+        timing_json_path=str(timing_json_path.resolve()),
+    )
+    with open(timing_json_path, "w", encoding="utf-8") as f:
+        f.write(result.model_dump_json(indent=2))
+    return result
+
+
 def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> FullAudioResult:
     """
-    대본의 씬(scenes) 리스트를 입력받아 음성 및 타이밍 정보를 생성합니다.
+    대본의 씬(scenes) 리스트를 입력받아 음성 및 타이밍 정보를 생성하고,
+    -30dB 무음 구간을 0.1초 단위로 자동 칼컷 편집하여 빠른 숏폼 호흡으로 재배열합니다.
+    0. (선택) ElevenLabs API 키가 설정된 경우 초고몰입 보이스 우선 시도
     1. Google Cloud Text-to-Speech 우선 시도
     2. GCP 인증 미설정 시 고음질 Edge-TTS 엔진 시도
     3. Edge-TTS 403 차단/실패 시 Google 무료 gTTS 엔진으로 3차 자동 폴백 (100% 무중단 완주)
@@ -449,6 +625,19 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
         output_dir = Path(output_dir)
 
     import random
+
+    # 0. ElevenLabs 플러그인 (키가 있을 때만 동작)
+    eleven_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if eleven_key and not eleven_key.startswith("your_"):
+        eleven_voice = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL").strip()
+        try:
+            print(f"[TTS] ElevenLabs 고몰입 보이스({eleven_voice})로 음성 합성을 진행합니다...")
+            LAST_TTS_INFO.clear()
+            LAST_TTS_INFO.update(engine="elevenlabs", voice=eleven_voice, rate="1.15")
+            res = synthesize_with_elevenlabs(scenes, output_dir, eleven_key, eleven_voice)
+            return _apply_silence_trim_to_result(res, output_dir)
+        except Exception as e:
+            print(f"[WARNING] ElevenLabs TTS 실패 ({e}), 기본 무료/클라우드 TTS로 전환합니다.")
 
     # TTS_VOICE_NAME을 명시하면 그 목소리로 고정, 없으면 영상마다 남/여 + 톤 프리셋을 랜덤 선택
     forced_voice = os.getenv("TTS_VOICE_NAME", "").strip()
@@ -465,7 +654,8 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
         LAST_TTS_INFO.update(engine="google", voice=voice_name, rate=str(speaking_rate))
         try:
             print(f"[TTS] Google Cloud TTS({voice_name}, rate={speaking_rate}, pitch={gp['pitch']})로 음성 합성을 진행합니다...")
-            return synthesize_with_google_tts(scenes, output_dir, voice_name, speaking_rate, gp["pitch"])
+            res = synthesize_with_google_tts(scenes, output_dir, voice_name, speaking_rate, gp["pitch"])
+            return _apply_silence_trim_to_result(res, output_dir)
         except Exception as e:
             print(f"[WARNING] Google Cloud TTS 실패 ({e}), 폴백 엔진(Edge-TTS)으로 전환합니다.")
 
@@ -475,14 +665,15 @@ def generate_speech(scenes: list, output_dir: Optional[str | Path] = None) -> Fu
     LAST_TTS_INFO.update(engine="edge", voice=edge_voice, rate=ep["rate"])
     print(f"[TTS] Edge-TTS({edge_voice}, rate={ep['rate']}, pitch={ep['pitch']})로 음성 합성을 진행합니다...")
     try:
-        return synthesize_with_edge_tts_fallback(scenes, output_dir, edge_voice, ep["rate"], ep["pitch"])
+        res = synthesize_with_edge_tts_fallback(scenes, output_dir, edge_voice, ep["rate"], ep["pitch"])
+        return _apply_silence_trim_to_result(res, output_dir)
     except Exception as e:
         print(f"\n[WARNING] Edge-TTS 요청 거부/실패 감지 ({e})")
         print("[TTS] ➔ Google 무료 gTTS 엔진으로 안전하게 자동 전환하여 음성을 합성합니다...")
         LAST_TTS_INFO.clear()
         LAST_TTS_INFO.update(engine="gtts", voice="gtts", rate="default")
-        return synthesize_with_gtts_fallback(scenes, output_dir)
-
+        res = synthesize_with_gtts_fallback(scenes, output_dir)
+        return _apply_silence_trim_to_result(res, output_dir)
 
 
 if __name__ == "__main__":

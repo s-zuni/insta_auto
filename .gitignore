@@ -53,6 +53,13 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+# Chrome profile & temporary scratch
+assets/chrome_flow_profile/
+assets/videos/*
+!assets/videos/.gitkeep
+assets/test_flux/
+scratch/
+
 # Test & runtime artifacts
 bot_output.txt
 test_*.jpg
