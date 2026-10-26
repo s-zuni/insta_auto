@@ -51,9 +51,12 @@ CTA_PLANS = {
          "내 사주에 맞는 행운의 여행지가 궁금하다면\n여행지 분석에서 확인할 수 있어요\n👉 {url}"),
     ],
     "mbti_saju": [
-        ("내 사주와 엠비티아이를 겹쳐 본 분석은 댓글에 사주 남기거나 프로필 링크에서 첫 분석 무료로 확인해보세요!",
-         "💬 댓글에 [사주] 남기거나\n👉 프로필 링크에서 내 사주 x MBTI 첫 분석을 무료로 확인하세요! (가입 필요)",
-         "사주만 봐도, MBTI만 봐도 반쪽이에요\n두 가지를 겹쳐 보는 분석, 첫 분석은 무료예요 (가입 필요)\n👉 {url}"),
+        ("내 생년월일과 엠비티아이 조합의 삼 년 운세와 솔루션은 댓글에 분석 남기거나 프로필 링크에서 확인해보세요!",
+         "💬 댓글에 [분석] 남기면 링크 전송!\n👉 프로필 링크에서 내 생년월일 x MBTI 조합의 3년 운세와 솔루션을 무료로 확인하세요!",
+         "내 생년월일과 MBTI를 결합한 진짜 사주 분석\n앞으로 3년 운의 흐름과 맞춤 솔루션을 지금 확인해보세요\n👉 {url}"),
+        ("내 사주와 엠비티아이를 겹쳐 본 분석은 댓글에 분석 남기거나 프로필 링크에서 첫 분석 무료로 확인해보세요!",
+         "💬 댓글에 [분석] 남기거나\n👉 프로필 링크에서 내 사주 x MBTI 첫 분석을 무료로 확인하세요!",
+         "사주만 봐도, MBTI만 봐도 반쪽이에요\n두 가지를 겹쳐 보는 분석, 앞으로 3년 운세와 솔루션\n👉 {url}"),
     ],
     "jamidosu": [
         ("내 수호별이 궁금하면 댓글에 사주 남기거나 프로필 링크에서 자미두수를 확인해보세요!",
@@ -186,7 +189,7 @@ def apply_reel_cta(scenes: list, caption: str, series: str = "", topic: str = ""
         nid = last.scene_id
         cta_visuals = [
             "Vertical 9:16 portrait candid shot of two young Korean women in their late 20s at a trendy Seoul cafe looking at a smartphone together with an amazed and relatable expression, natural daylight, no text, no watermark",
-            "Vertical 9:16 portrait candid close-up of a young Korean woman in her late 20s holding a smartphone by a warm window with a subtle curious smile, shallow depth of field, natural lighting, no text, no watermark",
+            "Vertical 9:16 portrait candid close-up of a young Korean woman in her late 20s holding a smartphone by a warm window with a subtle curious smile, different framing, shallow depth of field, natural lighting, no text, no watermark",
         ]
         for idx_p, (text, dur) in enumerate(parts):
             nid += 1

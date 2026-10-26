@@ -71,7 +71,23 @@ def extract_first_frame_from_video(video_path: Path, output_jpg_path: Path) -> b
 
 def infer_curiosity_badge(title: str) -> str:
     """제목 키워드를 분석하여 상단 플로팅 필 뱃지 문구를 자동 선택합니다 (이모지 글리프 깨짐 방지)."""
-    t = title or ""
+    t = (title or "").upper()
+    # mbtiju 타겟 조합 감지
+    found_y = next((y for y in ("94년생","95년생","96년생","97년생","98년생","99년생","00년생","01년생","02년생","03년생","04년생") if y in t), "")
+    found_m = next((m for m in ("INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP") if m in t), "")
+    found_z = next((z for z in ("용띠","호랑이띠","범띠","토끼띠","소띠","개띠","돼지띠","쥐띠","뱀띠","말띠","양띠","원숭이띠","닭띠") if z in t), "")
+    found_dm = next((d for d in ("갑목","을목","병화","정화","무토","기토","경금","신금","임수","계수") if d in t), "")
+
+    if found_y and found_m:
+        extra = f" {found_z}" if found_z else (f" {found_dm}" if found_dm else "")
+        return f"[ {found_y}{extra} × {found_m} ]"
+    if found_z and found_m:
+        return f"[ {found_z} × {found_m} ]"
+    if found_dm and found_m:
+        return f"[ {found_dm} × {found_m} ]"
+    if "TOP" in t or "조합" in t:
+        return "[ 2026 대박 사주×MBTI 조합 ]"
+
     if any(k in t for k in ("도화살", "홍염살", "매력", "인기")):
         return "[ 소름 주의 ] 치명적 사주 매력"
     if any(k in t for k in ("손절", "겉착", "착한", "칼같", "반전", "오해")):

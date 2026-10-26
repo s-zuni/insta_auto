@@ -32,6 +32,36 @@ DAY_MASTER_WEIGHTS = {"을목": 3, "갑목": 2, "병화": 2, "정화": 2, "신�
 GENDERS = ["여자", "남자"]
 GENDER_WEIGHTS = [68, 32]  # 주요 타겟층 2030 여성 중심
 
+# ── [mbtiju 초개인화 타겟 재료: 출생연도 & 12간지] ─────────────────────
+BIRTH_YEARS = [
+    "94년생", "95년생", "96년생", "97년생", "98년생",
+    "99년생", "00년생", "01년생", "02년생", "03년생", "04년생"
+]
+YEAR_ZODIAC_MAP = {
+    "94년생": "개띠",
+    "95년생": "돼지띠",
+    "96년생": "쥐띠",
+    "97년생": "소띠",
+    "98년생": "호랑이띠",
+    "99년생": "토끼띠",
+    "00년생": "용띠",
+    "01년생": "뱀띠",
+    "02년생": "말띠",
+    "03년생": "양띠",
+    "04년생": "원숭이띠",
+}
+
+# 2030 핵심 고민 카테고리 (연애 45% / 재물·커리어 35% / 본성·관계 20%)
+CONCERNS_LOVE = [
+    "결혼운", "연애운", "썸 속마음", "이별 후 심리", "천생연분 궁합", "인연 타이밍", "연애할 때 고장 나는 이유"
+]
+CONCERNS_CAREER = [
+    "이직운", "재물 대운", "직장 내 포지션", "대운 전환 신호", "번아웃 극복", "퇴사 고민"
+]
+CONCERNS_TRAITS = [
+    "특징 3가지", "손절 기준", "인간관계 정리하는 법", "남들이 모르는 본성"
+]
+
 SINSALS = ["도화살", "홍염살", "역마살", "화개살", "백호살", "귀문관살"]
 SINSAL_TRAIT = {
     "도화살": "가만히 있어도 시선이 모이는 묘한 매력",
@@ -99,23 +129,15 @@ SAJU_FORMATS: List[Tuple[str, str]] = [
 ]
 
 # 콘텐츠 필라(기둥). 가중치 = 제작 비율.
-# viral_mass(대중 확장 포맷) 비중을 대폭 추가하여 100만 뷰 도달 모수를 확보!
+# mbtiju 3대 하이브리드 축(초타겟팅 40% : 사주 심층 융합 30% : 시의성 랭킹 30%) 중심 편성
 PILLAR_WEIGHTS = {
-    "viral_checklist": 18,  # [100만 대중형] 체크리스트 ("5개 중 3개 이상이면...")
-    "viral_fakeout": 15,    # [100만 대중형] 페이크아웃/통념 반박 ("겉은 천사인데 손절 제일 빠른 이유")
-    "viral_pov": 14,        # [100만 대중형] 카톡/일상 POV 속마음 ("썸 탈 때 이 행동 하면...")
-    "viral_mystery": 12,    # [100만 대중형] 대운/징조 미스터리 ("운 터지기 직전 나타나는 징조 3가지")
-    "viral_balance": 10,    # [100만 대중형] A vs B 밸런스 게임 / 비교
-    "identity": 10,         # [사주 코어형] 일간+성별 특징 (검증된 승자 공식)
-    "couple_dm": 6,         # [사주 코어형] 남녀 일간 궁합
-    "mbti_couple": 5,       # [MBTI 교차형] MBTI 남녀 궁합 / 사주 교차
-    "job": 4,               # [사주 코어형] 일간별 직업/돈버는 환경
-    "flow3y": 6,            # [전환 직결형] 앞으로 3년 흐름 티저
-    "relation": 4,          # [사주 코어형] 관계 속 나
-    "habit": 3,             # [사주 코어형] 일상 습관
-    "sipsin": 3,            # [사주 코어형] 십성/신살 특징
-    "travel": 2,            # [사주 코어형] 행운 여행지
-    "etc": 2,               # [서비스 확장] 자미두수/타로
+    "pillar_target_zodiac": 38,  # [Track A - 초타겟팅 핀셋형 40%] 출생연도/띠 + MBTI + 2030 현실 고민
+    "pillar_deep_saju": 28,       # [Track B - 사주 심층 융합형 30%] 출생연도 + 일간 + MBTI + 미래 예측
+    "pillar_season_rank": 28,     # [Track C - 시의성 랭킹/총운형 30%] 하반기/병오년 대박 사주xMBTI 조합 TOP 3
+    "identity": 2,                # [사주 코어형] 일간+성별 특징
+    "relation": 2,                # [사주 코어형] 관계 속 나
+    "habit": 1,                   # [사주 코어형] 일상 습관
+    "sipsin": 1,                  # [사주 코어형] 십성/신살 특징
 }
 
 # ── 다양성/디테일 재료 ──────────────────────────────────────────────
@@ -184,6 +206,9 @@ MBTI_FORMATS: List[Tuple[str, str]] = [
 
 # 필라별 LLM 지시 (사주 지식으로만 구성, 서비스 홍보는 CTA가 따로 담당)
 PILLAR_GUIDE = {
+    "pillar_target_zodiac": "[mbtiju Track A - 초타겟팅 핀셋형 40%] 출생연도(예: 00년생) + 띠(예: 용띠) + MBTI를 직격 호명하여 시청자 0.5초 스크롤 정지. 씬 2~3에서 MBTI 현실 행동/고민 묘사 -> 씬 4~5에서 띠와 사주 기운의 근본 원인 해부 -> 씬 6~7에서 미래 운세 예측 및 개운 솔루션 제공.",
+    "pillar_deep_saju": "[mbtiju Track B - 사주 심층 융합형 30%] 출생연도(예: 98년생) + 사주 일간(예: 임수) + MBTI를 융합하여 mbtiju의 전문성 부각. MBTI로 드러나는 겉성향 뒤에 숨겨진 사주 일간의 오행 에너지를 심층 분석하고, 올해/내년 구체적인 운의 흐름 예측과 맞춤 처방 제공.",
+    "pillar_season_rank": "[mbtiju Track C - 시의성 랭킹/총운형 30%] 특정 연도에 한정되지 않고 대중 전체의 호기심을 폭발시키는 시의성(올해 하반기/2026 병오년/앞으로 3년) 사주xMBTI 랭킹 TOP 3. 순차적으로 3위 -> 2위 -> 1위를 공개하며 높은 완독률과 바이럴 확산 달성.",
     "viral_checklist": "[100만 대중 확장 - 체크리스트형] 첫 3초는 어려운 사주 용어 없이 누구나 즉시 손가락 접으며 세어볼 수 있는 일상 행동 4~5가지 체크리스트('5개 중 3개 이상 맞으면...')로 시작하고, 중반에 이게 사주 신살/일간 특징임을 밝혀 저장과 친구 공유를 폭발시킨다.",
     "viral_fakeout": "[100만 대중 확장 - 페이크아웃 반전형] 첫 3초에서 사람들의 흔한 통념을 정면 반박('연락 안 한다고 관심 없는 게 아닙니다' / '다 퍼주는 사람이 손절할 땐 제일 무섭습니다')해 호기심을 극대화한 뒤, 사주 오행/십성 근거로 속마음을 해부한다.",
     "viral_pov": "[100만 대중 확장 - 일상/카톡 POV형] 첫 3초를 누구나 겪어본 생생한 장면(카톡 읽씹, 퇴근길 지하철, 새벽 감성)으로 열어 100% 공감을 얻은 뒤, 왜 그런 행동을 하는지 사주 일간과 MBTI 심리로 명쾌하게 풀어준다.",
@@ -231,6 +256,9 @@ def _weighted_pick_dm(recent: List[str]) -> str:
 _MBTI_RE = re.compile(r"[IE][NS][TF][JP]")
 
 _PILLAR_MARKERS = {
+    "pillar_target_zodiac": lambda t: any(y in t for y in BIRTH_YEARS) or any(z in t for z in YEAR_ZODIAC_MAP.values()),
+    "pillar_deep_saju": lambda t: any(dm in t for dm in DAY_MASTERS) and any(m in t for m in MBTI_TYPES),
+    "pillar_season_rank": lambda t: "TOP" in t.upper() or "조합" in t or "남은 기간" in t or "병오년" in t,
     "viral_checklist": lambda t: "3개" in t or "체크" in t or "해당" in t,
     "viral_fakeout": lambda t: "인 줄 알았는데" in t or "오해" in t or "칼같은" in t,
     "viral_pov": lambda t: "카톡" in t or "썸" in t or "속마음" in t,
@@ -290,7 +318,85 @@ def _seed_spec(kind: str, recent: List[str], exclude_dm: str = "", pillar: str =
     def fmt(tpl: str, **kw) -> str:
         return tpl.format(dm=dm, g=gender, **detail, **kw)
 
-    if pillar == "viral_checklist":
+    if pillar == "pillar_target_zodiac":
+        year = random.choice(BIRTH_YEARS)
+        zodiac = YEAR_ZODIAC_MAP[year]
+        mbti = random.choice(MBTI_TYPES)
+        concern_cat = random.choices(["love", "career", "traits"], weights=[45, 35, 20], k=1)[0]
+        if concern_cat == "love":
+            concern = random.choice(CONCERNS_LOVE)
+            pat = random.choice([
+                f"{year} {zodiac} {mbti}의 {concern}, 이거 모르면 꼬임",
+                f"{year} {zodiac} {mbti}가 연애할 때 고장 나는 진짜 이유",
+                f"{year} {zodiac} {mbti}와 천생연분인 사주 궁합",
+            ])
+        elif concern_cat == "career":
+            concern = random.choice(CONCERNS_CAREER)
+            pat = random.choice([
+                f"{year} {zodiac} {mbti}, 직장 이직 대운 터지는 신호",
+                f"{year} {zodiac} {mbti}한테 맞는 직업과 돈복 환경",
+                f"{year} {zodiac} {mbti}의 {concern}, 3년 흐름",
+            ])
+        else:
+            concern = random.choice(CONCERNS_TRAITS)
+            pat = random.choice([
+                f"{year} {zodiac} {mbti} 특징 3가지, 이거 모르면 오해함",
+                f"{year} {zodiac} {mbti}가 인간관계에서 손절하는 기준",
+                f"{year} {zodiac} {mbti}의 숨겨진 소름 돋는 본성",
+            ])
+        base.update(
+            series="MBTI",
+            mbti=mbti,
+            pattern=pat,
+            detail=f"포맷: [Track A] 연도/띠 + MBTI 초타겟팅 | 대상: {year} {zodiac} + {mbti} | 고민: {concern} | 장면: {detail['sit']}",
+        )
+    elif pillar == "pillar_deep_saju":
+        year = random.choice(BIRTH_YEARS)
+        mbti = random.choice(MBTI_TYPES)
+        concern_cat = random.choices(["love", "career", "traits"], weights=[45, 35, 20], k=1)[0]
+        if concern_cat == "love":
+            concern = random.choice(CONCERNS_LOVE)
+            pat = random.choice([
+                f"{year} {dm} + {mbti}의 {concern}, 올해 인연 타이밍",
+                f"{year} {dm} + {mbti}, 겉은 순한데 연애할 때 손절 빠른 이유",
+                f"{year} {dm} + {mbti}와 최악인 궁합 vs 최고인 궁합",
+            ])
+        elif concern_cat == "career":
+            concern = random.choice(CONCERNS_CAREER)
+            pat = random.choice([
+                f"{year} {dm} + {mbti}, 2026년에 이직 대박 나는 징조",
+                f"{year} {dm} + {mbti}한테 돈이 줄줄 새는 치명적 이유",
+                f"{year} {dm} + {mbti} 앞으로 3년 대운 흐름",
+            ])
+        else:
+            concern = random.choice(CONCERNS_TRAITS)
+            pat = random.choice([
+                f"{year} {dm} + {mbti}, 겉은 강한데 속으로 번아웃 온 진짜 원인",
+                f"{year} {dm} + {mbti}가 올해 꼭 조심해야 할 사람 유형",
+                f"{year} {dm} + {mbti} 특징 3가지, 남들은 절대 모름",
+            ])
+        base.update(
+            series="MBTI",
+            mbti=mbti,
+            pattern=pat,
+            detail=f"포맷: [Track B] 연도/일간 + MBTI 사주 심층 융합 | 대상: {year} {dm} + {mbti} | 고민: {concern} | 사주 근거: {dm} 기운과 {detail['ss']}",
+        )
+    elif pillar == "pillar_season_rank":
+        season_time = random.choice(["올해 남은 기간", "2026년 병오년", "앞으로 3년 대운", "올해 하반기"])
+        goal = random.choice(["제일 운 좋은", "돈복 터질", "결혼·연애 대박 날", "이직운 폭발할", "인생 역전할"])
+        pat = random.choice([
+            f"{season_time} {goal} MBTI&사주 조합 TOP 3",
+            f"겉은 삐걱대는데 사주 까보면 천생연분인 MBTI 조합 3쌍",
+            f"{season_time} 대운 터지기 직전인 사주xMBTI 신호 3가지",
+        ])
+        mbti = random.choice(MBTI_TYPES)
+        base.update(
+            series="MBTI",
+            mbti=mbti,
+            pattern=pat,
+            detail=f"포맷: [Track C] 시의성 랭킹 & 총운 | 시점: {season_time} | 테마: {goal} | 사주 조합: {dm} 및 주요 오행 융합",
+        )
+    elif pillar == "viral_checklist":
         pat = random.choice([
             f"여기서 3개 이상 맞으면 {sinsal} 있는 {gender}",
             f"{detail['sit']} 이 3가지 다 하면 {dm} 기질",
@@ -413,23 +519,20 @@ def _fallback_option(seed: Dict[str, str]) -> Dict[str, str]:
 
 def get_planned_reels_proposals() -> Dict[str, Any]:
     """
-    크롤링 없이 투트랙 공식으로 서로 다른 2개 기획안(A/B)을 만든다:
-    - A안: [100만 대중 확장 트랙] 체크리스트 / 페이크아웃 반전 / 카톡 POV / 대운 징조 미스터리 / A vs B 밸런스 게임
-           (첫 3초는 일반 대중 100%가 아는 일상 행동·심리로 후킹 -> 본문 중반에 사주 일간/신살/십성으로 반전 연결)
-    - B안: [코어 핀셋 또는 다른 바이럴 포맷] 일간+성별 핀셋, 남녀 궁합, MBTI 교차, 3년 대운 흐름
+    mbtiju.com 3대 하이브리드 축으로 서로 다른 2개 기획안(A/B)을 만든다:
+    - Track A: [초타겟팅 핀셋형 40%] 출생연도/띠 + MBTI + 2030 현실 고민
+    - Track B: [사주 심층 융합형 30%] 출생연도 + 사주 일간 + MBTI + 미래 예측
+    - Track C: [시의성 랭킹/총운형 30%] 시기별 대박 사주xMBTI 조합 TOP 3
     """
     from pipeline.script_gen import generate_json
 
     recent = _recent_topics()
-    # A안은 무조건 100만 대중 확장 바이럴 포맷(mass track)에서 선택
-    seed_a = _seed_spec("SAJU", recent, track_filter="mass")
-    # B안은 대중 포맷(다른 종류) 또는 사주/MBTI 코어 포맷에서 선택
-    b_track = "core" if random.random() < 0.45 else "mass"
-    seed_b = _seed_spec("MBTI" if random.random() < 0.35 else "SAJU", recent, exclude_dm=seed_a["dm"], track_filter=b_track)
+    seed_a = _seed_spec("MBTI", recent)
+    seed_b = _seed_spec("MBTI" if random.random() < 0.6 else "SAJU", recent, exclude_dm=seed_a.get("dm", ""))
     for _ in range(5):
         if seed_b["pillar"] != seed_a["pillar"]:
             break
-        seed_b = _seed_spec("SAJU", recent, exclude_dm=seed_a["dm"])
+        seed_b = _seed_spec("MBTI", recent, exclude_dm=seed_a.get("dm", ""))
 
     examples_block = ""
     try:
@@ -451,9 +554,16 @@ def get_planned_reels_proposals() -> Dict[str, Any]:
 
 {recent_block}
 
-[100만 바이럴 릴스 투트랙 전략]
-1. 대중 확장형(viral_* 필라): 일반 대중 95%는 자신의 일간(을목·병화 등)을 모릅니다. 따라서 제목과 첫 3초 훅(hook)은 누구나 0.5초 만에 이해하고 자기 대입할 수 있는 '일상 행동·연애 심리·체크리스트(3개 이상 맞으면)·페이크아웃(통념 반박)·A vs B 밸런스·대운 징조'로 시작하고, 본문 중반에 "사실 이게 사주에 OO(일간/도화살/홍염살/십성)이 있는 사람 특징"으로 반전을 줍니다.
-2. 코어 핀셋형(identity, couple_dm 등): 본인의 일간이나 MBTI를 아는 타겟을 정확히 호명해 저장과 프로필 클릭을 유도합니다.
+[mbtiju.com 사주 분석 기반 MBTI 맞춤 조언 & 미래 예측 전략]
+우리 서비스 mbtiju.com은 단순 성격 테스트가 아닌, 사주 원국과 대운을 깊이 분석하고 MBTI 성향과 결합하여 인생의 결정적 타이밍(연애·이직·결혼 등)에 제대로 된 조언과 예측을 제공합니다.
+1. 초타겟팅 핀셋형: 출생연도/띠 + MBTI를 호명하여 '00년생 용띠 ESFJ 특징'처럼 직격 공감 유도.
+2. 사주 심층 융합형: 출생연도 + 사주 일간 + MBTI를 융합하여 '98년생 임수 + INFP의 결혼운'처럼 겉성향 뒤 사주 기운 해부.
+3. 시의성 랭킹형: '올해 남은 기간 제일 운 좋은 MBTI&사주 조합 TOP 3'처럼 바이럴 확산 극대화.
+
+전개 구조(3단 입체 진단):
+- (1) MBTI 겉행동 및 일상 고민 묘사 (공감 200%)
+- (2) 사주 오행/일간/십성 에너지 근본 원인 분석 (mbtiju 핵심 전문성)
+- (3) 앞으로의 시기별 운세 예측 및 구체적 실천 솔루션
 
 아래 두 씨앗을 바탕으로 100만 뷰가 터질 수 있는 릴스 기획안 2개(A안, B안)로 다듬으세요.
 {_desc("A안", seed_a)}
@@ -464,8 +574,8 @@ def get_planned_reels_proposals() -> Dict[str, Any]:
 - 제목(title)은 16자 이내(큰 글씨 2줄 표시), 한눈에 꽂히고 결론을 숨겨 궁금증을 유발해야 함.
 - '오늘의 운세' 같은 일일 운세 금지. 후킹(hook)은 초반 2.5초 안에 끝나는 강렬한 한 문장.
 - 한자 사용 절대 금지(순수 한글 표기만). 제목에도 한자 금지.
-- [디테일 규칙] topic에는 (1) 초반 3초 대중 후킹 장면, (2) 본문 일상 공감 장면 3개, (3) 중후반 사주 명리학(일간·십성·신살) 반전 포인트를 구체적으로 한두 문장으로 요약해 적는다(대본 생성기가 그대로 보고 쓸 수 있도록).
-- [다양성 규칙] A안과 B안의 제목 어미와 포맷(체크리스트형, 반전형, 비교형 vs, 질문형, 숫자형)을 서로 완전히 다르게 쓴다.
+- [디테일 규칙] topic에는 (1) 초반 3초 타겟 후킹 장면, (2) MBTI 겉행동 및 현실 고민 장면 2개, (3) 사주 명리학(일간·오행·십성) 원인 해부, (4) 운세 예측 및 솔루션을 구체적으로 요약해 적는다(대본 생성기가 그대로 보고 쓸 수 있도록).
+- [다양성 규칙] A안과 B안의 제목 어미와 포맷(특징형, 시기형, 비교형, 질문형)을 서로 완전히 다르게 쓴다.
 
 JSON 포맷:
 {{
