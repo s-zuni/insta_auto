@@ -112,7 +112,7 @@ def build_shorts_overlay(
     - 상단 플로팅 글래스모피즘 호기심 뱃지 (Y=148)
     - 2톤 임팩트 훅 타이틀 (흰색 + 일렉트릭 골드 하이라이트, Y=228)
     """
-    from pipeline.text_utils import sanitize_title, wrap_by_pixel_width
+    from pipeline.text_utils import sanitize_title, wrap_by_pixel_width, wrap_natural_title
 
     CANVAS_W, CANVAS_H = 1080, 1920
     overlay = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
@@ -174,20 +174,13 @@ def build_shorts_overlay(
     title_size = 86
     while True:
         title_font = _load(title_size)
-        lines = wrap_by_pixel_width(clean_title, title_font, max_title_width) or [clean_title]
+        lines = wrap_natural_title(clean_title, title_font, max_title_width, max_lines=2) or [clean_title]
         if len(lines) <= 2 or title_size <= 64:
             break
         title_size -= 6
     if len(lines) > 2:
         lines = lines[:2]
         lines[-1] = lines[-1].rstrip() + "…"
-
-    # 한 줄에 어절이 3개 이상이면 시각적 리듬감을 위해 2줄(흰색 셋업 + 골드 강조)로 분할
-    if len(lines) == 1:
-        words = lines[0].split()
-        if len(words) >= 3:
-            mid = len(words) // 2
-            lines = [" ".join(words[:mid]), " ".join(words[mid:])]
 
     title_y = pill_y0 + pill_h + 26
     line_h = int(title_size * 1.22)

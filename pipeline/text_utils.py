@@ -2,7 +2,8 @@
 나레이션/자막 텍스트 가공 유틸리티.
 - 한자(漢字) 제거: TTS 엔진이 한글과 한자를 중복 발음하는 문제 방지
   (예: "토(土)사주" -> 음성 "토토 사주" 로 겹쳐 읽히는 현상)
-- 픽셀 폭 기반 줄바꿈: 글자 수가 아닌 실제 렌더 폭 기준으로 자연스럽게 줄바꿈
+- MBTI 영문 표준화: 한글 음차(인프피, 엠비티아이) -> 표준 영문 대문자(INFP, MBTI)
+- 픽셀 폭 기반 자연스러운 줄바꿈: 구분 기호 인식 + 시각적 폭 균형(외톨이 단어 방지)
 """
 import re
 from typing import List, Tuple, TYPE_CHECKING
@@ -16,28 +17,102 @@ _HANJA_PAREN_RE = re.compile(r"[\(（]\s*[㐀-䶿一-鿿]+\s*[\)）]")
 _HANJA_RE = re.compile(r"[㐀-䶿一-鿿]")
 _MULTI_SPACE_RE = re.compile(r"\s{2,}")
 
-# 문장부호/구어체 어미 뒤에서 자연스럽게 끊어 자막/음성 호흡 단위를 만들기 위한 경계
+# MBTI 한글 음차 표기 -> 표준 영문 대문자 매핑 사전
+MBTI_KOREAN_MAP = {
+    "엠비티아이": "MBTI",
+    # 16가지 축약형
+    "인프피": "INFP",
+    "인팁": "INTP",
+    "인티제": "INTJ",
+    "인프제": "INFJ",
+    "엔프피": "ENFP",
+    "엔팁": "ENTP",
+    "엔티제": "ENTJ",
+    "엔프제": "ENFJ",
+    "잇프피": "ISFP",
+    "잇팁": "ISTP",
+    "잇티제": "ISTJ",
+    "잇프제": "ISFJ",
+    "엣프피": "ESFP",
+    "엣팁": "ESTP",
+    "엣티제": "ESTJ",
+    "엣프제": "ESFJ",
+    # 음절별 발음 표기
+    "아이엔에프피": "INFP",
+    "아이엔티피": "INTP",
+    "아이엔티제이": "INTJ",
+    "아이엔티제": "INTJ",
+    "아이엔프제이": "INFJ",
+    "아이엔프제": "INFJ",
+    "이엔에프피": "ENFP",
+    "이엔티피": "ENTP",
+    "이엔티제이": "ENTJ",
+    "이엔티제": "ENTJ",
+    "이엔프제이": "ENFJ",
+    "이엔프제": "ENFJ",
+    "아이에스티제이": "ISTJ",
+    "아이에스에프제이": "ISFJ",
+    "이에스티제이": "ESTJ",
+    "이에스에프제이": "ESFJ",
+    "아이에스티피": "ISTP",
+    "아이에스에프피": "ISFP",
+    "이에스티피": "ESTP",
+    "이에스에프피": "ESFP",
+}
+
+_MBTI_KOR_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(MBTI_KOREAN_MAP.keys(), key=len, reverse=True)))
+_MBTI_ENG_PATTERN = re.compile(
+    r"(?i)(?<![a-zA-Z0-9])(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP|MBTI)(?![a-zA-Z0-9])"
+)
+
+
+def normalize_mbti_to_english(text: str) -> str:
+    """
+    한글로 작성된 MBTI 용어(예: '인프피', '엠비티아이', '엔티제') 및 소문자/혼용 MBTI 영문을
+    표준 영문 대문자(INFP, MBTI, ENTJ 등)로 일괄 변환합니다.
+    """
+    if not text:
+        return text
+    # 1. 한글 음차 표기 변환
+    res = _MBTI_KOR_PATTERN.sub(lambda m: MBTI_KOREAN_MAP[m.group(0)], text)
+    # 2. 영문 소문자/혼용 표기 대문자화
+    res = _MBTI_ENG_PATTERN.sub(lambda m: m.group(0).upper(), res)
+    return res
+
+
+# 문장부호/구어체 어미/연결 어미 뒤에서 자연스럽게 끊어 자막/음성 호흡 단위를 만들기 위한 경계
 _CLAUSE_BOUNDARY_RE = re.compile(
     r"(?<=[.!?,])\s+"          # 마침표/느낌표/물음표/쉼표 뒤
     r"|(?<=요)\s+(?=[가-힣])"   # '~해요' 뒤 다음 어절
     r"|(?<=죠)\s+(?=[가-힣])"   # '~하죠' 뒤 다음 어절
     r"|(?<=다)\s+(?=[가-힣])"   # '~합니다/했다' 뒤 다음 어절
+    r"|(?<=는데)\s+(?=[가-힣])" # '~보이는데' 뒤 다음 어절
+    r"|(?<=지만)\s+(?=[가-힣])" # '~하지만' 뒤 다음 어절
+    r"|(?<=거든)\s+(?=[가-힣])" # '~하거든/거든요' 뒤 다음 어절
+    r"|(?<=니까)\s+(?=[가-힣])" # '~하니까' 뒤 다음 어절
+    r"|(?<=으면)\s+(?=[가-힣])" # '~있으면' 뒤 다음 어절
+    r"|(?<=[가-힣]면)\s+(?=[가-힣])" # '~하면/되면' 뒤 다음 어절
+    r"|(?<=아서)\s+(?=[가-힣])" # '~좋아서' 뒤 다음 어절
+    r"|(?<=어서)\s+(?=[가-힣])" # '~강해서' 뒤 다음 어절
+    r"|(?<=하고)\s+(?=[가-힣])" # '~하고' 뒤 다음 어절
 )
 
 
 def sanitize_narration(text: str) -> str:
-    """TTS가 한글과 한자를 중복 발음하지 않도록 나레이션에서 한자를 제거합니다."""
+    """TTS가 한글과 한자를 중복 발음하지 않도록 나레이션에서 한자를 제거하고,
+    MBTI 용어를 표준 영문 대문자로 변환합니다."""
     if not text:
         return text
     cleaned = _HANJA_PAREN_RE.sub("", text)
     cleaned = _HANJA_RE.sub("", cleaned)
     cleaned = _MULTI_SPACE_RE.sub(" ", cleaned)
+    cleaned = normalize_mbti_to_english(cleaned)
     return cleaned.strip()
 
 
 def sanitize_title(text: str) -> str:
-    """화면 표시용 제목/헤드라인에서 한자를 제거합니다.
-    Pretendard에는 한자 글리프가 없어 두부(□)로 깨지므로 "을목(乙木)" -> "을목" 처럼 한글만 남깁니다."""
+    """화면 표시용 제목/헤드라인에서 한자를 제거하고 MBTI를 표준 영문 대문자로 변환합니다.
+    Pretendard에는 한자 글리프가 없어 두부(□)로 깨지므로 '을목(乙木)' -> '을목' 처럼 한글만 남깁니다."""
     if not text:
         return text
     return sanitize_narration(text).replace("( )", "").replace("()", "").strip()
@@ -63,7 +138,8 @@ def split_into_clauses(text: str) -> List[str]:
 
 
 def wrap_by_pixel_width(text: str, font: "ImageFont.FreeTypeFont", max_width: int) -> List[str]:
-    """주어진 폰트/크기 기준 실측 픽셀 폭에 맞춰 텍스트를 여러 줄로 래핑합니다."""
+    """주어진 폰트/크기 기준 실측 픽셀 폭에 맞춰 텍스트를 여러 줄로 래핑하며,
+    마지막 줄에 단어가 1개만 덜렁 남는 외톨이 단어(Orphan word) 현상을 방지하도록 균형을 맞춥니다."""
     words = text.split()
     if not words:
         return []
@@ -77,7 +153,77 @@ def wrap_by_pixel_width(text: str, font: "ImageFont.FreeTypeFont", max_width: in
             lines.append(current)
             current = word
     lines.append(current)
+
+    # 외톨이 단어(Orphan word) 방지: 마지막 줄 단어가 1개이고 바로 앞 줄 단어가 3개 이상이면 앞 줄 마지막 단어를 넘김
+    for i in range(len(lines) - 1, 0, -1):
+        cur_words = lines[i].split()
+        prev_words = lines[i - 1].split()
+        if len(cur_words) == 1 and len(prev_words) >= 3:
+            cand_cur = f"{prev_words[-1]} {lines[i]}"
+            if font.getlength(cand_cur) <= max_width:
+                lines[i - 1] = " ".join(prev_words[:-1])
+                lines[i] = cand_cur
+
     return lines
+
+
+def wrap_natural_title(
+    title: str,
+    font: "ImageFont.FreeTypeFont",
+    max_width: int,
+    max_lines: int = 2
+) -> List[str]:
+    """
+    릴스/숏츠 상단 타이틀 및 썸네일 커버용 고품질 줄바꿈 함수.
+    1. 자연스러운 의미 경계(쉼표, 물음표, 콜론, '+', 'vs' 등) 분할을 최우선 시도.
+    2. 모든 가능한 2분할 지점 중 두 줄의 실측 픽셀 폭 차이(|W1 - W2|)를 최소화하는 균형 분할 적용.
+    3. 1단어만 다음 줄로 떨어져 나가는 외톨이 단어(Orphan word) 원천 차단.
+    """
+    clean = title.replace("\r", "").replace("\n", " ").strip()
+    clean = normalize_mbti_to_english(clean)
+    words = clean.split()
+    if not words:
+        return []
+    if len(words) <= 2:
+        return [clean]
+
+    # 1. 의미적 구분 기호(쉼표, 물음표, 느낌표, 콜론, '+', 'vs' 등) 기준 분할
+    delimiters = [", ", "? ", "! ", ": ", " + ", " x ", " X ", " vs ", " VS "]
+    for delim in delimiters:
+        if delim in clean:
+            idx = clean.find(delim)
+            part1 = clean[:idx + len(delim.rstrip())].strip()
+            part2 = clean[idx + len(delim):].strip()
+            if part1 and part2:
+                w1 = font.getlength(part1)
+                w2 = font.getlength(part2)
+                if w1 <= max_width and w2 <= max_width:
+                    return [part1, part2]
+
+    # 2. 픽셀 너비 균형 분할 (Minimizing |W1 - W2|)
+    best_split = None
+    min_diff = float("inf")
+    for i in range(1, len(words)):
+        p1 = " ".join(words[:i])
+        p2 = " ".join(words[i:])
+        w1 = font.getlength(p1)
+        w2 = font.getlength(p2)
+        if w1 <= max_width and w2 <= max_width:
+            penalty = 0
+            # 뒤 줄에 단어가 1개만 남는데 전체 단어가 4개 이상이면 페널티
+            if len(p2.split()) == 1 and len(words) >= 4:
+                penalty = 350
+            diff = abs(w1 - w2) + penalty
+            if diff < min_diff:
+                min_diff = diff
+                best_split = [p1, p2]
+
+    if best_split:
+        return best_split
+
+    # 3. 폴백: 균형 래핑
+    lines = wrap_by_pixel_width(clean, font, max_width)
+    return lines[:max_lines]
 
 
 _PUNCT_RE = re.compile(r"[^\w가-힣]", re.UNICODE)
@@ -154,7 +300,7 @@ def align_word_times(
 
 
 HIGHLIGHT_KEYWORDS = {
-    "1위", "2위", "3위", "대박", "조심", "소름", "대운", "운세", "궁합", "후회", "비밀", "특징", "팩트",
+    "1위", "2위", "3위", "대박", "조심", "소름", "대운", "운세", "궁합", "후회", "비밀", "특징", "팩트", "MBTI",
     "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
     "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"
 }
@@ -163,7 +309,7 @@ HIGHLIGHT_KEYWORDS = {
 def _colorize_token(word: str, kf_prefix: str = "") -> str:
     """핵심 키워드(MBTI, 순위, 자극적 단어)에 골드/옐로우 컬러 코드를 부여합니다."""
     clean_w = re.sub(r"[^\w가-힣A-Za-z]", "", word).upper()
-    is_highlight = clean_w in HIGHLIGHT_KEYWORDS or any(kw in clean_w for kw in ("1위", "대박", "소름", "조심", "대운"))
+    is_highlight = any(kw in clean_w for kw in HIGHLIGHT_KEYWORDS)
     if is_highlight:
         # 노란색(&H002BF7FF&) 액센트 부여 후 원래 흰색(&H00FFFFFF&)으로 복귀
         return f"{kf_prefix}{{\\c&H002BF7FF&}}{word}{{\\c&H00FFFFFF&}}"
@@ -230,8 +376,6 @@ def build_karaoke_blocks(
     return out
 
 
-
-
 def build_caption_chunks(
     narration: str,
     start_time: float,
@@ -280,4 +424,3 @@ def build_caption_chunks(
         chunks.append((cursor, c_end, c_text))
         cursor = c_end
     return chunks
-

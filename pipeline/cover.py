@@ -18,7 +18,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
 
-from pipeline.text_utils import sanitize_title, wrap_by_pixel_width
+from pipeline.text_utils import sanitize_title, wrap_by_pixel_width, wrap_natural_title
 from pipeline.visual_gen import infer_curiosity_badge
 
 if sys.platform == "win32":
@@ -190,18 +190,12 @@ def build_reel_cover(
     size = 142
     while True:
         font = _font(size, bold=True)
-        lines = wrap_by_pixel_width(main_text, font, W - 120) or [main_text]
+        lines = wrap_natural_title(main_text, font, W - 120, max_lines=2) or [main_text]
         line_h = int(size * 1.22)
         if (len(lines) <= 2 and len(lines) * line_h <= 450) or size <= 84:
             break
         size -= 6
     lines = lines[:2]
-
-    if len(lines) == 1:
-        words = lines[0].split()
-        if len(words) >= 3:
-            mid = len(words) // 2
-            lines = [" ".join(words[:mid]), " ".join(words[mid:])]
 
     title_start_y = 590
     line_h = int(size * 1.25)

@@ -32,17 +32,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.ffmpeg_check import get_ffmpeg_path
-from pipeline.text_utils import build_caption_chunks, build_karaoke_blocks
+from pipeline.text_utils import build_caption_chunks, build_karaoke_blocks, normalize_mbti_to_english
 
 # 자막/제목 공통 폰트: Pretendard Bold (없으면 NanumGothic Bold로 대체). ASS Fontname은 폰트 패밀리명과 일치해야 함.
 _PRETENDARD = PROJECT_ROOT / "assets" / "fonts" / "Pretendard-Bold.otf"
 SUBTITLE_FONT_FILE = _PRETENDARD if _PRETENDARD.is_file() else PROJECT_ROOT / "assets" / "fonts" / "NanumGothic-Bold.ttf"
 SUBTITLE_FONT_NAME = "Pretendard" if _PRETENDARD.is_file() else "NanumGothic"
 
-SUBTITLE_FONT_SIZE = 96
+SUBTITLE_FONT_SIZE = 88
 SUBTITLE_Y = 1423  # 자막 박스 상단 Y 좌표(기획안)
-# PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭
-SUBTITLE_MAX_WIDTH = 900
+# PlayResX(1080) 기준 좌우 마진(80*2) + 안전 여백을 제외한 자막 최대 표시 폭 (한 줄 11~13자 수용)
+SUBTITLE_MAX_WIDTH = 920
 
 
 def format_ass_timestamp(seconds: float) -> str:
@@ -123,7 +123,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for scene_idx, sc in enumerate(scene_results):
         start_t = float(_get_field(sc, "start_time", 0.0))
         end_t = float(_get_field(sc, "end_time", 0.0))
-        narration = str(_get_field(sc, "narration", "")).strip()
+        raw_narr = str(_get_field(sc, "narration", "")).strip()
+        narration = normalize_mbti_to_english(raw_narr)
         word_timings = _get_field(sc, "word_timings", []) or []
         shift = scene_idx * transition_shift
 
