@@ -16,6 +16,19 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+
+def bootstrap_credentials():
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if sa_json and sa_json.strip():
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        sa_file = Path(temp_dir) / "service_account.json"
+        sa_file.write_text(sa_json.strip(), encoding="utf-8")
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_file)
+        print(f"[BOOTSTRAP] GOOGLE_APPLICATION_CREDENTIALS 설정 완료: {sa_file}")
+
+
+bootstrap_credentials()
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
