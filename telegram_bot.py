@@ -685,11 +685,11 @@ def handle_callback(cq: dict, chat_id: str | int = None):
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. APScheduler 스케줄러 (매일 17:30 KST)
+# 6. APScheduler 스케줄러 (매일 18:30 KST)
 # ─────────────────────────────────────────────────────────────
 def scheduled_daily_job():
     today_str = datetime.datetime.now(KST).strftime("%Y-%m-%d")
-    print(f"[SCHEDULER] 17:30 KST 트리거 발생 (날짜: {today_str})")
+    print(f"[SCHEDULER] 18:30 KST 트리거 발생 (날짜: {today_str})")
     if not is_daily_sent(today_str):
         generate_and_send_proposals()
         mark_daily_sent(today_str)
@@ -704,7 +704,7 @@ def start_scheduler():
         scheduler = BackgroundScheduler(timezone=KST)
         scheduler.add_job(
             scheduled_daily_job,
-            CronTrigger(hour=17, minute=30, timezone=KST),
+            CronTrigger(hour=18, minute=30, timezone=KST),
             id="daily_reels_proposal",
             replace_existing=True
         )
@@ -739,7 +739,7 @@ def start_scheduler():
             replace_existing=True
         )
         scheduler.start()
-        print("[SCHEDULER] ✅ APScheduler 가동 완료: 매일 17:30 KST 자동 발송")
+        print("[SCHEDULER] ✅ APScheduler 가동 완료: 매일 18:30 KST 자동 발송")
     except Exception as e:
         print(f"[SCHEDULER][ERROR] 스케줄러 시작 실패: {e}")
 
@@ -759,7 +759,7 @@ def run_bot():
     if DEFAULT_CHAT_ID or get_last_chat_id():
         tg_send(
             "🤖 <b>MBTI×사주 릴스 자동화 시스템 가동 완료!</b>\n\n"
-            "• 매일 <b>17:30 KST</b>에 기획안 A안/B안이 자동 발송됩니다.\n"
+            "• 매일 <b>18:30 KST</b>에 기획안 A안/B안이 자동 발송됩니다.\n"
             "• 지금 바로 받으려면 <b>/generate</b> 를 입력하세요.\n"
             "• 버튼 클릭 시 <b>대본→TTS→영상→Drive→인스타 릴스</b>가 원스톱으로 처리됩니다."
         )

@@ -52,7 +52,7 @@ class FreshnessTest(unittest.TestCase):
 class FitTitleTest(unittest.TestCase):
     def test_limit_and_hanja(self):
         t = tp._fit_title("을목(乙木) 여자가 퇴사 충동 오는 진짜 이유는 따로 있어요")
-        self.assertLessEqual(len(t), 16)
+        self.assertLessEqual(len(t), 22)
         self.assertNotRegex(t, r"[一-鿿]")
 
     def test_short_title_untouched(self):
@@ -70,7 +70,7 @@ class FallbackAndClassifyTest(unittest.TestCase):
         opt = tp._fallback_option(seed)
         for k in ("series", "mbti", "topic", "title", "hook", "summary"):
             self.assertIn(k, opt)
-        self.assertLessEqual(len(opt["title"]), 16)
+        self.assertLessEqual(len(opt["title"]), 22)
 
     def test_classify_custom_topic(self):
         self.assertEqual(tp.classify_custom_topic("INFP 연애")["series"], "MBTI")

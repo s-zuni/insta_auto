@@ -490,17 +490,31 @@ def _pick_fresh(pool: List[str], recent: List[str]) -> str:
     return random.choice(fresh or pool)
 
 
-def _fit_title(text: str, limit: int = 16) -> str:
-    """한자 제거 후 16자(큰 글씨 2줄) 이내로 맞춘다. 가능하면 어절 경계에서 자르고 불완전 관형어를 정리한다."""
-    from pipeline.text_utils import sanitize_title
-    t = sanitize_title(text.replace("\n", " "))
+def _fit_title(text: str, limit: int = 22) -> str:
+    """한자 제거 및 MBTI 영문 정규화 후, 큰 글씨 2줄(최대 20~22자)에 최적화된 완성된 훅 문장으로 다듬는다."""
+    from pipeline.text_utils import sanitize_title, normalize_mbti_to_english
+    t = sanitize_title(text.replace("\n", " ").strip())
+    t = normalize_mbti_to_english(t)
     if len(t) <= limit:
         return t
+
+    # limit 초과 시 어절 경계에서 자르되, 끝이 불완전하게 끊어지지 않도록 보정
     cut = t[:limit]
     if " " in cut and t[limit] != " ":
         cut = cut[: cut.rfind(" ")]
-    cut = re.sub(r"[\s,]*(당신의|나의|우리의|진짜|과연|만약)$", "", cut)
-    return cut.strip(" ,?!")
+    cut = cut.strip(" ,?!")
+
+    # 불완전한 어미로 끝나면 자연스러운 종결형으로 보정
+    if re.search(r"(벽치는|선긋는|손절하는|피하는|끌리는|헤어지는|놓치는|터지는|외로운)$", cut):
+        cut += " 이유"
+    elif re.search(r"(이래서|왜|진짜)$", cut):
+        cut = re.sub(r"(이래서|왜|진짜)$", "", cut).strip(" ,?!")
+        if cut and not cut.endswith("이유"):
+            cut += " 이유"
+    elif re.search(r"(알면|모르면)$", cut):
+        cut += " 평생 후회"
+
+    return cut
 
 
 def _fallback_option(seed: Dict[str, str]) -> Dict[str, str]:
@@ -569,18 +583,24 @@ def get_planned_reels_proposals() -> Dict[str, Any]:
 {_desc("A안", seed_a)}
 {_desc("B안", seed_b)}
 
-[규칙]
-- 외부 뉴스/타사 서비스/상품/사이트 언급 절대 금지. 오직 사주(일간·오행·십성·신살)와 MBTI 지식으로만 구성.
-- 제목(title)은 16자 이내(큰 글씨 2줄 표시), 한눈에 꽂히고 결론을 숨겨 궁금증을 유발해야 함.
+[제목(title) 후킹 극대화 규칙 - 절대 엄수]
+- 숏폼 피드(Reels/Shorts)에서 0.3초 만에 스크롤을 멈추게 하는 강력한 훅 제목을 작성하세요.
+- 글자 수: 공백 포함 14~20자 내외 (화면에서 2줄로 시원하게 배치되는 길이).
+- 어중간하게 끊기지 않는 '완성된 호기심 유발 문장'이어야 합니다. ('~이래서', '~벽치는' 처럼 말이 끊기면 절대 안 됨!)
+- 클릭하지 않고는 못 배기는 4대 후킹 패턴 적극 활용:
+  1) [반전/페이크아웃]: "겉은 다정한데 손절 제일 칼같은 이유", "착한 줄 알았는데 갑자기 선 긋는 이유"
+  2) [결핍/고민 저격]: "00년생 용띠가 인간관계에 지치는 진짜 이유", "98년생 INFP, 연애할 때 고장 나는 이유"
+  3) [시기/손실 회피]: "올해 하반기 이거 모르면 평생 엇갈린다", "2026년 대운 터지기 직전 나타나는 징조"
+  4) [팩트/소름 주의]: "3개 이상 맞으면 사주에 도화살 낀 사람", "99%가 속는 내 사주의 진짜 본성"
+- 한자 사용 절대 금지(순수 한글 표기만). MBTI는 반드시 영문 대문자(예: INFP, ESFJ).
 - '오늘의 운세' 같은 일일 운세 금지. 후킹(hook)은 초반 2.5초 안에 끝나는 강렬한 한 문장.
-- 한자 사용 절대 금지(순수 한글 표기만). 제목에도 한자 금지.
-- [디테일 규칙] topic에는 (1) 초반 3초 타겟 후킹 장면, (2) MBTI 겉행동 및 현실 고민 장면 2개, (3) 사주 명리학(일간·오행·십성) 원인 해부, (4) 운세 예측 및 솔루션을 구체적으로 요약해 적는다(대본 생성기가 그대로 보고 쓸 수 있도록).
+- [디테일 규칙] topic에는 (1) 초반 3초 타겟 후킹 장면, (2) MBTI 겉행동 및 현실 고민 장면 2개, (3) 사주 명리학(일간·오행·십성) 원인 해부, (4) 운세 예측 및 솔루션을 구체적으로 요약해 적는다.
 - [다양성 규칙] A안과 B안의 제목 어미와 포맷(특징형, 시기형, 비교형, 질문형)을 서로 완전히 다르게 쓴다.
 
 JSON 포맷:
 {{
-  "option_a": {{"series": "{seed_a['series']}", "mbti": "{seed_a['mbti']}", "topic": "구체적 주제 및 사주 반전 설계", "title": "16자이내제목", "hook": "초반 2.5초 후킹 대사", "summary": "포맷 및 핵심 타겟 1줄 요약"}},
-  "option_b": {{"series": "{seed_b['series']}", "mbti": "{seed_b['mbti']}", "topic": "구체적 주제 및 사주 반전 설계", "title": "16자이내제목", "hook": "초반 2.5초 후킹 대사", "summary": "포맷 및 핵심 타겟 1줄 요약"}}
+  "option_a": {{"series": "{seed_a['series']}", "mbti": "{seed_a['mbti']}", "topic": "구체적 주제 및 사주 반전 설계", "title": "14~20자 완성된 훅 제목", "hook": "초반 2.5초 후킹 대사", "summary": "포맷 및 핵심 타겟 1줄 요약"}},
+  "option_b": {{"series": "{seed_b['series']}", "mbti": "{seed_b['mbti']}", "topic": "구체적 주제 및 사주 반전 설계", "title": "14~20자 완성된 훅 제목", "hook": "초반 2.5초 후킹 대사", "summary": "포맷 및 핵심 타겟 1줄 요약"}}
 }}
 """
     try:

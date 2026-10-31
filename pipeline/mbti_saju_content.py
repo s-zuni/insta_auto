@@ -66,8 +66,9 @@ REELS_PERSONA = """[릴스 100만 바이럴 디렉터 페르소나]
 [narration & title 작성 규칙 - 절대 엄수]
 - MBTI 유형(예: INFP, ENTJ, ESFJ) 및 'MBTI' 단어는 한글 음차(인프피, 엠비티아이)가 아닌 반드시 표준 영문 대문자(예: INFP, MBTI)로 작성하세요.
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. MBTI 영문 대문자와 숫자를 제외한 본문은 모두 자연스러운 순수 한글 구어체로 작성합니다.
-- 제목(title)도 한자 금지, 한글/영문 대문자/숫자만 사용.
-- 제목(title)은 공백 포함 16자 이내로 짧고 강렬하게."""
+- 제목(title)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'이어야 합니다.
+  (예: "겉은 다정한데 손절 제일 빠른 이유", "00년생 용띠가 인간관계 지치는 이유", "올해 인연 놓치면 평생 후회할 사주", "3개 이상 맞으면 진짜 100%")
+- 제목(title)에 한자 금지, 한글/영문 대문자/숫자만 사용."""
 
 FIXED_SHORTFORM_CTA = "내 생년월일과 MBTI 조합의 삼 년 운세와 솔루션은 댓글에 분석 남기거나 프로필 링크에서 무료로 확인해보세요!"
 FIXED_CAPTION_CTA = "💬 댓글에 [분석] 남기면 링크 전송!\n👉 프로필 링크에서 내 생년월일 x MBTI 조합의 3년 운세와 솔루션을 무료로 확인하세요!"
@@ -147,9 +148,8 @@ def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "
     script.instagram_caption = script.instagram_caption.replace("#오늘의운세", "#운세").replace("#오늘운세", "#운세")
 
     # 제목 줄바꿈 제거 및 길이 제한
-    script.title = sanitize_title(script.title.replace("\n", " "))
-    if len(script.title) > 16:
-        script.title = script.title[:16].strip()
+    from pipeline.topic_planner import _fit_title
+    script.title = _fit_title(script.title, limit=22)
     return script
 
 
@@ -159,7 +159,7 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
     user_prompt = f"""인스타그램 100만 바이럴 릴스 대본 JSON을 작성하세요.
 시리즈: {series} | 컨텍스트: {json.dumps(context, ensure_ascii=False)}
 JSON 스키마:
-- title: 릴스 화면 상단 제목 (16자 이내, 호기심·결핍 자극, 한자 절대 금지)
+- title: 릴스 화면 상단 제목 (14~20자 완성된 훅 제목, 결핍·궁금증 자극, 말 끊김 금지, 한자 절대 금지)
 - hook: 초반 2초 후킹 대사
 - scenes: 씬 리스트 7~9개 (뒤에 시스템이 CTA 씬 2개를 자동 추가하여 총 9~11씬이 됨)
   * scene_id: 1부터 순차 증가

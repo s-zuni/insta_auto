@@ -1,15 +1,13 @@
 """
-High-CTR Curiosity-Driven Reels / Shorts Cover Generator (1080x1920).
-Optimized for mbtiju.com: Bold Minimalist Typography centered in the
-Instagram Profile Grid 3:4 crop window (1080x1440, Y=240..1680).
+High-CTR Single-Focus Reels / Shorts Cover Generator (1080x1920).
+Optimized for mbtiju.com: Minimalist, High-Impact 2-Tone Typography centered
+in the Instagram Profile Grid 3:4 crop window (1080x1440, Y=240..1680)
+and 1:1 feed square (1080x1080, Y=420..1500).
 
-Features:
-- Dimmed cinematic background visual for 100% text clarity and zero distraction
-- Top Personalized Target Pill Badge (Y=340..420, e.g. '[ 98년생 × INFP ]', '[ 00년생 용띠 × ESFJ ]')
-- Center Giant 2-Tone Impact Typography (Y=560..1060): Pure White setup + Electric Gold punchline
-- Sub-hook Teaser Tape (Y=1140)
-- Bottom Brand Trust Pill (Y=1460): '[ mbtiju 사주 심층 분석 ]'
-- Triple deep drop shadows for instant 0.3s feed scroll-stopping power
+Core Philosophy:
+- Zero Distraction: 잡다한 알약 뱃지, 테이프, 자잘한 서브 카피를 전면 삭제.
+- Single Focus: 오직 하나의 거대 2톤 헤드라인에 0.1초 만에 시선이 꽂히는 극상의 가독성.
+- Setup (White) + Punchline (Electric Gold) 2-Tone Visual Contrast.
 """
 import re
 import sys
@@ -18,7 +16,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
 
-from pipeline.text_utils import sanitize_title, wrap_by_pixel_width, wrap_natural_title
+from pipeline.text_utils import sanitize_title, wrap_natural_title
 from pipeline.visual_gen import infer_curiosity_badge
 
 if sys.platform == "win32":
@@ -30,7 +28,6 @@ if sys.platform == "win32":
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 W, H = 1080, 1920
-SAFE_TOP, SAFE_BOTTOM = 240, 1680  # Instagram 3:4 Grid Crop Window
 
 
 def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -46,10 +43,11 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
 
 
 def infer_mbtiju_badge(title: str, category_tag: str = "") -> str:
-    """제목에서 출생연도, 띠, 일간, MBTI를 자동 추출하여 핀셋 타겟 뱃지 텍스트를 만듭니다."""
+    """제목에서 출생연도, 띠, 일간, MBTI를 자동 추출하여 미니멀한 타겟 태그 문구를 만듭니다."""
     if category_tag.strip():
-        return category_tag.strip()
-    t = title.upper()
+        clean_tag = category_tag.strip().strip("[] ")
+        return f"✦ {clean_tag} ✦"
+    t = (title or "").upper()
 
     found_year = ""
     for y in ("94년생", "95년생", "96년생", "97년생", "98년생", "99년생", "00년생", "01년생", "02년생", "03년생", "04년생"):
@@ -77,18 +75,22 @@ def infer_mbtiju_badge(title: str, category_tag: str = "") -> str:
             break
 
     if found_year and found_zodiac and found_mbti:
-        return f"[ {found_year} {found_zodiac} × {found_mbti} ]"
+        return f"✦ {found_year} {found_zodiac} × {found_mbti} ✦"
     if found_year and found_dm and found_mbti:
-        return f"[ {found_year} {found_dm} × {found_mbti} ]"
+        return f"✦ {found_year} {found_dm} × {found_mbti} ✦"
     if found_year and found_mbti:
-        return f"[ {found_year} × {found_mbti} ]"
+        return f"✦ {found_year} × {found_mbti} ✦"
     if found_zodiac and found_mbti:
-        return f"[ {found_zodiac} × {found_mbti} ]"
+        return f"✦ {found_zodiac} × {found_mbti} ✦"
     if found_dm and found_mbti:
-        return f"[ {found_dm} × {found_mbti} ]"
+        return f"✦ {found_dm} × {found_mbti} ✦"
+    if found_mbti:
+        return f"✦ {found_mbti} 사주 심층 분석 ✦"
     if "TOP" in t or "조합" in title:
-        return "[ 2026 대박 사주×MBTI 조합 ]"
-    return infer_curiosity_badge(title)
+        return "✦ 2026 대박 사주 × MBTI 조합 ✦"
+
+    raw_badge = infer_curiosity_badge(title).strip("[] ")
+    return f"✦ {raw_badge} ✦"
 
 
 def build_reel_cover(
@@ -99,14 +101,15 @@ def build_reel_cover(
     hook_text: str = "",
 ) -> Path:
     """
-    심플 텍스트 중심형(Bold Minimalist Typography):
-    이미지 비중을 어둡게 눌러 가독성을 100% 확보하고,
-    타겟 조합(연도/띠+MBTI)과 핵심 카피를 화면 전체에 거대하게 부각시킵니다.
+    단일 시선 집중형(Single-Focus High-CTR) 릴스/숏츠 썸네일 생성기.
+    - 산만한 부가 요소(테이프, 서브박스, 다중 알약)를 제거하고,
+    - 0.3초 만에 스크롤을 멈추는 초대형 2톤 타이포그래피(화이트 셋업 + 일렉트릭 골드 펀치라인)로 화면 압도.
+    - 3:4 그리드(인스타 프로필) 및 1:1 그리드(피드) 어디서든 완벽하게 노출.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. 딥 차콜-네이비 그라데이션 및 비주얼 배경 세팅
+    # 1. 딥 시네마틱 배경 준비 (어둡고 차분하게 눌러 텍스트 가독성 100% 확보)
     base_img = None
     if raw_image:
         raw_p = Path(raw_image)
@@ -116,16 +119,15 @@ def build_reel_cover(
                 base_img = ImageOps.fit(
                     loaded, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35)
                 )
-                # 텍스트가 돋보이도록 이미지를 어둡고 차분하게 누름
-                base_img = ImageEnhance.Brightness(base_img).enhance(0.42)
-                base_img = ImageEnhance.Contrast(base_img).enhance(1.22)
+                base_img = ImageEnhance.Brightness(base_img).enhance(0.38)
+                base_img = ImageEnhance.Contrast(base_img).enhance(1.25)
             except Exception as e:
                 print(f"[COVER][WARN] 원본 이미지 로드 실패({e}), 그래디언트 생성으로 대체")
                 base_img = None
 
     if base_img is None:
-        BG_TOP = (16, 18, 28)
-        BG_BOTTOM = (7, 8, 14)
+        BG_TOP = (15, 16, 26)
+        BG_BOTTOM = (6, 7, 12)
         base_img = Image.new("RGB", (W, H), BG_TOP)
         d_bg = ImageDraw.Draw(base_img)
         for y_pos in range(H):
@@ -135,40 +137,34 @@ def build_reel_cover(
             b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
             d_bg.line([(0, y_pos), (W, y_pos)], fill=(r, g, b))
 
-    # 2. 풀스크린 다크 비네팅 오버레이 (텍스트 가독성 극대화)
+    # 2. 풀스크린 시네마틱 비네팅 오버레이 (화면 중앙 집중)
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d_ov = ImageDraw.Draw(overlay)
 
-    # 3:4 그리드 영역(Y=240..1680) 텍스트 배경을 짙은 다크로 블렌딩
+    # 3:4 그리드 영역(Y=240..1680) 텍스트 배경을 짙고 부드럽게 감싸는 다크 그라데이션
     for y in range(H):
-        t_center = abs(y - 960) / 960.0
-        alpha = int(140 + 80 * (1.0 - t_center))
-        d_ov.line([(0, y), (W, y)], fill=(8, 9, 16, alpha))
+        t_center = abs(y - 940) / 940.0
+        alpha = int(170 + 75 * (1.0 - min(t_center, 1.0)))
+        d_ov.line([(0, y), (W, y)], fill=(6, 7, 13, alpha))
 
-    # 3. 상단 개인화 타겟 뱃지 (Y=350, 3:4 그리드 Y=240 안쪽 안전 영역)
+    # 3. 상단 미니멀 타겟 캡슐 태그 (Y=390, 모던하고 절제된 형태)
     badge_text = infer_mbtiju_badge(title, category_tag)
-    badge_font = _font(46, bold=True)
+    badge_font = _font(38, bold=True)
     bbox_b = d_ov.textbbox((0, 0), badge_text, font=badge_font)
     bw, bh = bbox_b[2] - bbox_b[0], bbox_b[3] - bbox_b[1]
-    px, py = 42, 18
+    px, py = 32, 14
     pill_w = bw + px * 2
     pill_h = bh + py * 2
     pill_x0 = (W - pill_w) // 2
-    pill_y0 = 350
+    pill_y0 = 390
 
-    # 뱃지 골드 네온 테두리 & 배경
-    d_ov.rounded_rectangle(
-        [pill_x0 - 2, pill_y0 - 2, pill_x0 + pill_w + 2, pill_y0 + pill_h + 2],
-        radius=pill_h // 2 + 2,
-        outline=(255, 212, 59, 210),
-        width=2,
-    )
+    # 은은하고 모던한 반투명 다크 캡슐
     d_ov.rounded_rectangle(
         [pill_x0, pill_y0, pill_x0 + pill_w, pill_y0 + pill_h],
         radius=pill_h // 2,
-        fill=(14, 15, 25, 245),
-        outline=(255, 224, 102, 255),
-        width=3,
+        fill=(18, 20, 32, 220),
+        outline=(255, 218, 90, 180),
+        width=2,
     )
     d_ov.text(
         (W // 2, pill_y0 + pill_h // 2),
@@ -178,46 +174,49 @@ def build_reel_cover(
         anchor="mm",
     )
 
-    # 4. 거대 2톤 임팩트 타이포그래피 (화면 중앙 Y=560..1060 집중 배치)
-    clean = sanitize_title(title).replace("\n", " ").strip()
-    # 뱃지에 들어간 연도/MBTI 문구는 메인 헤드라인에서 중복 제거하여 더 큰 글씨로 핵심 키워드 강조
-    main_text = clean
-    for tag_item in ("98년생", "00년생", "97년생", "99년생", "95년생", "96년생", "01년생", "02년생", "03년생", "04년생",
-                     "용띠", "소띠", "토끼띠", "호랑이띠", "개띠", "돼지띠", "쥐띠"):
-        if tag_item in main_text and len(main_text) > 10:
-            main_text = main_text.replace(tag_item, "").strip()
+    # 4. 화면 정중앙 초대형 2톤 임팩트 타이포그래피 (Y=620..1060)
+    # 제목 원본의 후킹성을 훼손하지 않고 온전하게 노출 (임의 단어 삭제 방지!)
+    clean_title = sanitize_title(title).replace("\n", " ").strip()
+    max_title_w = W - 140  # 좌우 70px씩 시원한 여백
 
-    size = 142
+    title_size = 126
     while True:
-        font = _font(size, bold=True)
-        lines = wrap_natural_title(main_text, font, W - 120, max_lines=2) or [main_text]
-        line_h = int(size * 1.22)
-        if (len(lines) <= 2 and len(lines) * line_h <= 450) or size <= 84:
+        font = _font(title_size, bold=True)
+        lines = wrap_natural_title(clean_title, font, max_title_w, max_lines=2) or [clean_title]
+        line_h = int(title_size * 1.28)
+        if (len(lines) <= 2 and len(lines) * line_h <= 380) or title_size <= 86:
             break
-        size -= 6
-    lines = lines[:2]
+        title_size -= 4
 
-    title_start_y = 590
-    line_h = int(size * 1.25)
-    stroke_w = max(8, int(size * 0.08))
+    lines = lines[:2]
+    # 만약 한 줄인데 어절이 3개 이상이면 시각적 리듬감을 위해 2줄 분할
+    if len(lines) == 1:
+        words = lines[0].split()
+        if len(words) >= 3:
+            mid = len(words) // 2
+            lines = [" ".join(words[:mid]), " ".join(words[mid:])]
+
+    # 세로 중심 맞춤 (3:4 그리드 및 1:1 정사각 그리드의 완벽한 중앙)
+    total_text_h = len(lines) * line_h
+    title_start_y = 660 if len(lines) >= 2 else 720
+    stroke_w = max(8, int(title_size * 0.08))
 
     for idx, line in enumerate(lines):
         y_pos = title_start_y + idx * line_h
-        # 마지막 줄(핵심 키워드)은 일렉트릭 골드, 첫 줄은 화이트
-        fill_color = (255, 220, 68, 255) if (len(lines) > 1 and idx == len(lines) - 1) else (255, 255, 255, 255)
+        # 1줄: 순백색 셋업(White), 2줄: 하이볼티지 일렉트릭 골드 펀치라인(Electric Gold)
+        fill_color = (255, 226, 38, 255) if (len(lines) > 1 and idx == len(lines) - 1) else (255, 255, 255, 255)
 
-        # 3중 다중 드롭 섀도우 (피드에서 1초 만에 튀어나오는 입체감)
-        for dx, dy in [(0, 10), (4, 12), (-4, 12)]:
-            d_ov.text(
-                (W // 2 + dx, y_pos + dy),
-                line,
-                font=font,
-                fill=(0, 0, 0, 220),
-                anchor="mt",
-                stroke_width=stroke_w + 6,
-                stroke_fill=(0, 0, 0, 220),
-            )
-        # 메인 텍스트 렌더링
+        # 또렷하고 단단한 딥 섀도우 (피드에서 글자가 칼같이 튀어나오는 시인성)
+        d_ov.text(
+            (W // 2, y_pos + 10),
+            line,
+            font=font,
+            fill=(0, 0, 0, 230),
+            anchor="mt",
+            stroke_width=stroke_w + 4,
+            stroke_fill=(0, 0, 0, 230),
+        )
+        # 메인 타이포 렌더링
         d_ov.text(
             (W // 2, y_pos),
             line,
@@ -225,54 +224,23 @@ def build_reel_cover(
             fill=fill_color,
             anchor="mt",
             stroke_width=stroke_w,
-            stroke_fill=(6, 7, 12, 255),
+            stroke_fill=(5, 6, 10, 255),
         )
 
-    # 5. 서브 훅 티저 태그 (Y=1140)
-    teaser_text = "올해 이 타이밍 놓치면 평생 후회"
-    if hook_text and "3개" in hook_text:
-        teaser_text = "3개 이상 맞으면 진짜 100%"
-    elif hook_text and "손절" in hook_text:
-        teaser_text = "겉은 다정한데 속은 칼같다?"
-    elif "결혼" in title or "연애" in title:
-        teaser_text = "올해 하반기 인연 타이밍 공개"
-    elif "이직" in title or "돈" in title or "직장" in title:
-        teaser_text = "2026년 대운 터지는 결정적 신호"
-
-    teaser_font = _font(40, bold=True)
-    bbox_t = d_ov.textbbox((0, 0), teaser_text, font=teaser_font)
-    tw, th = bbox_t[2] - bbox_t[0], bbox_t[3] - bbox_t[1]
-    t_px, t_py = 32, 14
-    t_w = tw + t_px * 2
-    t_h = th + t_py * 2
-    t_x0 = (W - t_w) // 2
-    t_y0 = 1140
-    d_ov.rounded_rectangle(
-        [t_x0, t_y0, t_x0 + t_w, t_y0 + t_h],
-        radius=14,
-        fill=(255, 224, 102, 245),
-    )
-    d_ov.text(
-        (W // 2, t_y0 + t_h // 2),
-        teaser_text,
-        font=teaser_font,
-        fill=(14, 15, 24, 255),
-        anchor="mm",
-    )
-
-    # 6. 하단 브랜드 신뢰 뱃지 (Y=1460, 3:4 그리드 하단 안전 영역)
-    brand_text = "[ mbtiju.com 심층 사주 분석 ]"
-    brand_font = _font(34, bold=False)
+    # 5. 하단 미니멀 브랜드 워터마크 (Y=1460, 3:4 그리드 하단 안전 영역)
+    # 기존의 잡다한 테이프/뱃지를 걷어내고 세련된 한 줄 브랜딩만 은은하게 유지
+    brand_text = "✦ mbtiju.com 사주 × MBTI 심층 분석 ✦"
+    brand_font = _font(30, bold=False)
     d_ov.text(
         (W // 2, 1460),
         brand_text,
         font=brand_font,
-        fill=(190, 200, 220, 200),
+        fill=(190, 202, 225, 170),
         anchor="mm",
     )
 
-    # 7. 알파 합성 및 최종 JPEG 저장
+    # 6. 알파 합성 및 최종 고화질 JPEG 저장
     final_img = Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
     final_img.save(out_path, "JPEG", quality=96)
-    print(f"[COVER] ✅ mbtiju 맞춤 텍스트 중심형 썸네일 생성 완료 -> {out_path.name}")
+    print(f"[COVER] ✅ 초집중 단일 포커스 썸네일 생성 완료 -> {out_path.name}")
     return out_path

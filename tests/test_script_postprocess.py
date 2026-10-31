@@ -14,7 +14,7 @@ class ReelPostprocessTest(unittest.TestCase):
     def test_title_has_no_hanja_and_fits(self):
         s = m._enforce_shortform_cta(_script(title="을목(乙木) 여자 특징? 이거 모르면 진짜 후회합니다"), "SAJU", "을목 여자")
         self.assertNotRegex(s.title, r"[一-鿿]")
-        self.assertLessEqual(len(s.title), 16)
+        self.assertLessEqual(len(s.title), 22)
 
     def test_cta_appended_after_conclusion_and_caption_has_cta(self):
         s = m._enforce_shortform_cta(_script(), "SAJU", "을목 여자 특징")

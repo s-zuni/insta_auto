@@ -200,7 +200,7 @@ SYSTEM_PROMPT = """
 5. 내레이션 & 제목 규칙:
    - MBTI 유형(예: INFP, ENTJ, ESFJ) 및 'MBTI' 단어는 한글 음차(인프피, 엠비티아이)가 아닌 반드시 표준 영문 대문자(예: INFP, MBTI)로 작성하세요.
    - narration과 title에는 한자(漢字)를 절대 포함하지 마세요. MBTI 영문 대문자와 숫자를 제외한 본문은 순수 한글 구어체만 사용합니다.
-   - title(화면 제목)은 공백 포함 16자 이내로 짧고 강렬하게 작성하세요.
+   - title(화면 제목)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'으로 작성하세요. (예: "겉은 다정한데 손절 제일 칼같은 이유", "00년생 용띠가 인간관계 지치는 이유")
 6. visual_prompt (Google Flow Veo 영상 & Imagen/FLUX 실사 가이드):
    - 반드시 '영문(English)'으로 작성, Vertical 9:16 세로 풀스크린 비율.
    - 실제 한국인이 일상(카페 창가, 퇴근길 지하철, 자취방 스탠드 조명, 한강 산책로 등)에서 찍은 자연스러운 세로 숏폼 영상/사진처럼 묘사하고, 씬 1~2에는 자연스러운 움직임(subtle movement, looking up from smartphone, sipping iced coffee 등)을 포함하세요.

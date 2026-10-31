@@ -2,8 +2,9 @@ name: Daily MBTI x Saju Reel & Shorts Automation
 
 on:
   schedule:
-    # 매일 17:30 KST (17:30 KST = 08:30 UTC)
-    - cron: '30 8 * * *'
+    # 매일 18:28 KST (영상 생성 2분 소요 -> 18:30 KST 정시 공개, 18:28 KST = 09:28 UTC)
+    # 정각/30분의 GitHub 대기열 병목을 우회하기 위해 28분으로 최적화
+    - cron: '28 9 * * *'
   workflow_dispatch:
     inputs:
       topic:
