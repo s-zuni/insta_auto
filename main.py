@@ -48,7 +48,7 @@ from pipeline.insta_publisher import publish_reel_to_instagram, publish_carousel
 from pipeline import media_host
 from pipeline.bgm import pick_bgm
 from pipeline.cover import build_reel_cover
-from pipeline.insights import record_post
+from pipeline.insights import record_post, classify_hook
 from pipeline.youtube_publisher import upload_shorts_to_youtube
 
 
@@ -120,6 +120,7 @@ def run_pipeline(
         "avg_chars_per_scene": avg_chars, "share_cta": has_share_line(script.scenes),
         "cta_kind": infer_cta_kind(series, topic or script.title),
     }
+    variant.update(classify_hook(script.hook or script.title))  # 훅 공식/용어 유무/길이 기록(ig-audit 비교용)
 
     # 2. 음성 합성
     print("\n[2/7] 🎙️ 한국어 내레이션 음성 합성 및 -30dB 무음 칼컷 중...")

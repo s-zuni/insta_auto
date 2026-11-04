@@ -10,6 +10,7 @@ state.db(텔레그램 봇과 동일 파일)를 공유합니다. instagram_manage
 import datetime
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -34,7 +35,7 @@ GRAPH_VERSION = os.getenv("INSTAGRAM_GRAPH_VERSION", "v21.0")
 SNAPSHOT_WINDOWS_H = (24, 72, 168)
 # 계정/버전에 따라 일부 지표는 지원되지 않으므로 하나씩 요청하고 실패한 것은 건너뜁니다.
 CANDIDATE_METRICS = ["reach", "views", "plays", "likes", "comments", "saved", "shares",
-                     "total_interactions", "ig_reels_avg_watch_time"]
+                     "total_interactions", "ig_reels_avg_watch_time", "follows", "profile_visits"]
 # 예시를 신뢰하려면 최소 이 개수 이상의 72h 이상 지난 게시물이 있어야 합니다.
 MIN_POSTS_FOR_EXAMPLES = int(os.getenv("INSIGHTS_MIN_POSTS", "5"))
 
@@ -158,6 +159,7 @@ def collect_due_insights() -> int:
                 if not metrics:
                     print(f"[INSIGHTS] {p['media_id']} {window}h 지표를 가져오지 못했습니다(권한/지연 가능).")
                     break
+                metrics["age_h_at_collect"] = round(age_h, 1)  # 창(24/72/168h)보다 훨씬 늦게 수집됐는지 판별용
                 with conn:
                     conn.execute(
                         "INSERT OR REPLACE INTO post_insights VALUES (?,?,?,?,?)",
@@ -274,7 +276,152 @@ def weekly_report(days: int = 7) -> str:
     return "\n".join(out)
 
 
+
+
+# ── 훅 분류 (ig-audit: "어떤 훅 공식이 먹혔나"를 나중에 비교하려면 게시 시점에 기록해야 함) ──
+from pipeline.hook_guard import JARGON_TERMS as _JARGON  # 플래너/대본 가드와 같은 용어 목록을 쓴다
+
+
+def classify_hook(hook: str) -> Dict[str, Any]:
+    """훅 문장에서 성과 비교용 특징을 뽑는다. 결과는 variant_json에 합쳐 저장한다.
+    hook_jargon: 일간/신살 등 전문 용어가 훅에 있는가 (실측: 용어 있는 게시물 119~189회, 없는 게시물 1,510회)."""
+    h = (hook or "").strip()
+    if re.search(r"\d+\s*개\s*(이상|맞|해당)|체크", h):
+        formula = "checklist"
+    elif re.search(r"\bvs\b|\s대\s", h, re.I):
+        formula = "balance"
+    elif re.search(r"TOP\s*\d|순위", h, re.I):
+        formula = "ranking"
+    elif re.search(r"이것|이 사람|이거", h):
+        formula = "mystery"
+    elif re.search(r"아닙니다|아니라|진짜 이유|줄 알았|착한", h):
+        formula = "fakeout"
+    elif re.search(r"[A-Z]{4}", h) or any(j in h for j in _JARGON):
+        formula = "identity"
+    else:
+        formula = "other"
+    return {
+        "hook_formula": formula,
+        "hook_chars": len(h),
+        "hook_jargon": any(j in h for j in _JARGON),
+        "hook_has_number": bool(re.search(r"\d", h)),
+        "hook_has_mbti": bool(re.search(r"\b[EI][NS][TF][JP]\b", h)),
+    }
+
+
+def _median(vals: List[float]) -> float:
+    v = sorted(vals)
+    if not v:
+        return 0.0
+    mid = len(v) // 2
+    return float(v[mid]) if len(v) % 2 else (v[mid - 1] + v[mid]) / 2
+
+
+def fetch_account_media(limit: int = 30, access_token: Optional[str] = None,
+                        account_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """계정에 실제로 올라간 최근 미디어 목록. GitHub Actions처럼 state.db가 매번 사라지는 환경에서도
+    '무엇을 올렸는지'를 DB 없이 알 수 있게 한다."""
+    token = access_token or os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
+    acct = account_id or os.getenv("INSTAGRAM_ACCOUNT_ID", "")
+    if not token or not acct:
+        return []
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/{GRAPH_VERSION}/{acct}/media",
+            params={"fields": "id,caption,media_product_type,timestamp,permalink", "limit": limit,
+                    "access_token": token},
+            timeout=20,
+        )
+        return r.json().get("data", []) if r.ok else []
+    except requests.RequestException:
+        return []
+
+
+def sync_account_media(limit: int = 30) -> int:
+    """계정 미디어 중 published_posts에 없는 것을 채워 넣는다(훅=캡션 첫 줄). 추가한 개수 반환."""
+    added = 0
+    conn = _conn()
+    try:
+        have = {r[0] for r in conn.execute("SELECT media_id FROM published_posts")}
+        for m in fetch_account_media(limit):
+            if m["id"] in have:
+                continue
+            first = (m.get("caption") or "").strip().split("\n")[0][:80]
+            fmt = "reel" if m.get("media_product_type") == "REELS" else "carousel"
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO published_posts "
+                    "(media_id, format, series, mbti, topic, title, hook, trend_hint, permalink, published_at, variant_json) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (m["id"], fmt, "", "", "", first, first, "", m.get("permalink", ""),
+                     m.get("timestamp", _now().isoformat()),
+                     json.dumps({"synced": True, **classify_hook(first)}, ensure_ascii=False)),
+                )
+            added += 1
+    finally:
+        conn.close()
+    return added
+
+
+def audit_rows(limit: int = 30) -> List[Dict[str, Any]]:
+    """계정 릴스 각각의 '지금까지 누적' 지표를 새로 받아 ig-audit 지표를 계산한다.
+    (DB 스냅샷 시점에 의존하지 않음: 24h/72h 값이 똑같이 저장되던 문제를 피한다.)"""
+    rows = []
+    for m in fetch_account_media(limit):
+        if m.get("media_product_type") != "REELS":
+            continue
+        met = fetch_media_insights(m["id"])
+        if not met:
+            continue
+        first = (m.get("caption") or "").strip().split("\n")[0][:60]
+        rows.append({"id": m["id"], "hook": first, "ts": m.get("timestamp", ""), **met})
+    med = _median([r.get("views", r.get("plays", 0)) for r in rows])
+    for r in rows:
+        views = r.get("views", r.get("plays", 0))
+        reach = max(r.get("reach", 0), 1)
+        r["outlier"] = round(views / med, 1) if med else 0.0
+        r["sends_per_reach_pct"] = round(r.get("shares", 0) / reach * 100, 2)
+        r["follows_per_reach_pct"] = round(r.get("follows", 0) / reach * 100, 2)
+        r["avg_watch_s"] = round(r.get("ig_reels_avg_watch_time", 0) / 1000, 1)
+    rows.sort(key=lambda r: -r["outlier"])
+    return rows
+
+
+def audit_report(limit: int = 30) -> str:
+    rows = audit_rows(limit)
+    if not rows:
+        return "📊 ig-audit: 지표를 가져오지 못했습니다(토큰/권한 확인)."
+    med = _median([r.get("views", r.get("plays", 0)) for r in rows])
+    out = [f"📊 <b>ig-audit</b> · 릴스 {len(rows)}개 · 조회 중앙값 {int(med)}", ""]
+    for r in rows[:5]:
+        out.append(f"{r['outlier']}배 · 조회 {int(r.get('views', 0))} · 시청 {r['avg_watch_s']}초 · "
+                   f"공유/도달 {r['sends_per_reach_pct']}% · 팔로우/도달 {r['follows_per_reach_pct']}% · {r['hook']}")
+    if len(rows) > 5:
+        out += ["", "<b>하위</b>"]
+        for r in rows[-3:]:
+            out.append(f"{r['outlier']}배 · 조회 {int(r.get('views', 0))} · 시청 {r['avg_watch_s']}초 · {r['hook']}")
+    if len(rows) < 12:
+        out += ["", f"<i>표본 {len(rows)}개: 패턴이 아니라 단서 수준입니다.</i>"]
+    return "\n".join(out)
+
+
+def _send_telegram(text: str) -> None:
+    token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+    if token and chat:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                      data={"chat_id": chat, "text": text, "parse_mode": "HTML"}, timeout=15)
+
+
 if __name__ == "__main__":
-    n = collect_due_insights()
-    print(f"수집한 스냅샷: {n}개")
-    print(weekly_report())
+    # --audit    : 계정에서 직접 받아 ig-audit 리포트 출력 (GitHub Actions 등 DB가 없는 환경용)
+    # --telegram : 결과를 텔레그램으로도 전송
+    if "--audit" in sys.argv:
+        text = audit_report()
+        print(text)
+        if "--telegram" in sys.argv:
+            _send_telegram(text)
+    else:
+        print(f"계정에서 새로 채운 게시물: {sync_account_media()}개")
+        n = collect_due_insights()
+        print(f"수집한 스냅샷: {n}개")
+        print(weekly_report())

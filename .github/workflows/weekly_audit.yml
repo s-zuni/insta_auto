@@ -1,0 +1,28 @@
+name: Weekly IG Audit
+
+# state.db는 GitHub Actions에서 매번 사라지므로(.gitignore), 계정에서 직접 지표를 받아
+# ig-audit 리포트(조회 중앙값 대비 배수, 시청 시간, 공유/도달, 팔로우/도달)를 텔레그램으로 보냅니다.
+on:
+  schedule:
+    # 매주 월요일 09:07 KST (일요일 00:07 UTC 다음날이 아닌 월 09:07 KST = 일 24:07 UTC → 월 00:07 UTC)
+    - cron: '7 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install requests python-dotenv
+      - name: Run ig-audit
+        env:
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m pipeline.insights --audit --telegram

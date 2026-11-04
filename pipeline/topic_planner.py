@@ -397,9 +397,10 @@ def _seed_spec(kind: str, recent: List[str], exclude_dm: str = "", pillar: str =
             detail=f"포맷: [Track C] 시의성 랭킹 & 총운 | 시점: {season_time} | 테마: {goal} | 사주 조합: {dm} 및 주요 오행 융합",
         )
     elif pillar == "viral_checklist":
+        # 훅/제목에는 사주 용어를 쓰지 않는다(hook_guard). 신살/일간은 detail에 두고 중반 씬에서 푼다.
         pat = random.choice([
-            f"여기서 3개 이상 맞으면 {sinsal} 있는 {gender}",
-            f"{detail['sit']} 이 3가지 다 하면 {dm} 기질",
+            f"여기서 3개 이상 맞으면 정 떨어지면 칼같은 {gender}",
+            f"{detail['sit']} 이 3가지 다 하면 소름 돋는 이유",
             f"평생 돈 안 마르는 사주 체크리스트 4가지",
         ])
         base.update(
@@ -431,7 +432,7 @@ def _seed_spec(kind: str, recent: List[str], exclude_dm: str = "", pillar: str =
         )
     elif pillar == "viral_mystery":
         pat = random.choice([
-            f"대운 터지기 직전인 사람이 갑자기 끊는 것 3가지",
+            f"인생 풀리기 직전인 사람이 갑자기 끊는 것 3가지",
             f"올해 하반기 돈복 터질 사주에 나타나는 징조",
             f"인간관계 정리될 때 나타나는 소름 돋는 운세 신호",
         ])
@@ -442,7 +443,7 @@ def _seed_spec(kind: str, recent: List[str], exclude_dm: str = "", pillar: str =
     elif pillar == "viral_balance":
         other_dm = _weighted_pick_dm([dm])
         pat = random.choice([
-            f"나만 보는 {dm} 연인 vs 숨만 쉬어도 설레는 {other_dm}",
+            f"나만 보는 다정한 연인 vs 숨만 쉬어도 설레는 연인",
             f"혼자 일해야 대박 나는 사주 vs 팀으로 돈 버는 사주",
             f"칼답인데 무뚝뚝 vs 답장 느린데 다정, 내 사주 짝은?",
         ])
@@ -517,18 +518,45 @@ def _fit_title(text: str, limit: int = 22) -> str:
     return cut
 
 
+def _apply_plain(opt: Dict[str, str], use_llm: bool = True) -> Dict[str, str]:
+    """기획안의 title/hook에서 사주 전문 용어를 제거한다 (hook_guard 참고).
+    1) 용어가 있으면 LLM으로 한 번 쉬운 말로 재작성(use_llm=True일 때만)
+    2) 그래도 남으면 용어 없는 대체 제목/훅으로 교체하고, 영상 주제(topic)도 제목과 어긋나지 않게 맞춘다.
+    용어는 본문 씬 4~6에서 푼다(topic의 detail에 일간/신살 근거는 그대로 남아 있음)."""
+    from pipeline import hook_guard
+    fields = {"title": str(opt.get("title", "")), "hook": str(opt.get("hook", ""))}
+    if not (hook_guard.find_jargon(fields["title"]) or hook_guard.find_jargon(fields["hook"])):
+        return opt
+    if use_llm:
+        fields, remaining = hook_guard.enforce_plain(fields, context=str(opt.get("topic", "")))
+    else:
+        remaining = [k for k, v in fields.items() if hook_guard.find_jargon(v)]
+    opt["title"] = _fit_title(fields["title"])
+    opt["hook"] = fields["hook"]
+    if remaining:
+        title, hook = hook_guard.plain_fallback()
+        if "title" in remaining:
+            opt["title"] = title
+            # 제목과 영상 내용이 어긋나지 않도록 주제도 대체 제목 기준으로 맞춘다(사주 근거는 중반 씬에서)
+            opt["topic"] = f"{title} (사주 용어는 영상 중반 씬 4~6에서 근거로 풀이, 첫 3초는 일상 장면)"
+        if "hook" in remaining:
+            opt["hook"] = hook
+        print(f"[PLANNER][GUARD] 용어가 남아 대체안으로 교체: {remaining}")
+    return opt
+
+
 def _fallback_option(seed: Dict[str, str]) -> Dict[str, str]:
     pat = seed["pattern"]
     first = pat.split(",")[0].strip()
     title = _fit_title(first if len(first) <= 16 else re.sub(r"[?,]", "", pat))
     who = " ".join(x for x in (seed["dm"], seed["gender"]) if x) or seed["mbti"] or "나"
-    return {
+    return _apply_plain({
         "series": seed["series"], "mbti": seed["mbti"],
         "topic": f"{pat} ({seed.get('detail', '')})", "trend_hint": "",
         "title": title,
         "hook": f"솔직히 {first}, 이거 내 얘기다 싶으면 끝까지 보세요.",
         "summary": f"{pat} ({seed['pillar']} 포맷)",
-    }
+    }, use_llm=False)  # 폴백은 LLM이 이미 실패한 경로이므로 재호출하지 않는다
 
 
 def get_planned_reels_proposals() -> Dict[str, Any]:
@@ -591,7 +619,8 @@ def get_planned_reels_proposals() -> Dict[str, Any]:
   1) [반전/페이크아웃]: "겉은 다정한데 손절 제일 칼같은 이유", "착한 줄 알았는데 갑자기 선 긋는 이유"
   2) [결핍/고민 저격]: "00년생 용띠가 인간관계에 지치는 진짜 이유", "98년생 INFP, 연애할 때 고장 나는 이유"
   3) [시기/손실 회피]: "올해 하반기 이거 모르면 평생 엇갈린다", "2026년 대운 터지기 직전 나타나는 징조"
-  4) [팩트/소름 주의]: "3개 이상 맞으면 사주에 도화살 낀 사람", "99%가 속는 내 사주의 진짜 본성"
+  4) [팩트/소름 주의]: "3개 이상 맞으면 정 떨어지면 칼같은 사람", "다 퍼주는 사람이 제일 먼저 연락 끊는 이유"
+- [용어 금지 - 절대 엄수] 제목(title)과 훅(hook)에는 일간(갑목·을목·병화 등), 신살(도화살·홍염살 등), 십성(식신·정인 등), 대운, 오행, 자미두수 용어를 쓰지 마세요. 누구나 바로 이해하는 일상어와 구체적 장면만 쓰고, 이런 용어는 영상 중반(씬 4~6)에서 근거로 풀어주세요. (우리 계정 실측: 용어 없는 제목 1,510회 vs 용어 제목 119~189회)
 - 한자 사용 절대 금지(순수 한글 표기만). MBTI는 반드시 영문 대문자(예: INFP, ESFJ).
 - '오늘의 운세' 같은 일일 운세 금지. 후킹(hook)은 초반 2.5초 안에 끝나는 강렬한 한 문장.
 - [디테일 규칙] topic에는 (1) 초반 3초 타겟 후킹 장면, (2) MBTI 겉행동 및 현실 고민 장면 2개, (3) 사주 명리학(일간·오행·십성) 원인 해부, (4) 운세 예측 및 솔루션을 구체적으로 요약해 적는다.
@@ -611,6 +640,7 @@ JSON 포맷:
                 opt["series"], opt["mbti"] = seed["series"], seed["mbti"]
                 opt["trend_hint"] = ""
                 opt["title"] = _fit_title(str(opt.get("title", "")) or seed["pattern"])
+                _apply_plain(opt)  # 제목/훅에 사주 전문 용어가 남아 있으면 쉬운 말로 재작성(실패 시 대체안)
             return data
     except Exception as e:
         print(f"[PLANNER][WARN] 기획안 생성 에러: {e}")

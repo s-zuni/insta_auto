@@ -1,5 +1,7 @@
 import unittest
+from unittest import mock
 
+from pipeline import hook_guard
 from pipeline import carousel_gen as cg
 from pipeline import mbti_saju_content as m
 from pipeline.script_gen import ReelsScript, Scene
@@ -11,6 +13,12 @@ def _script(title="을목(乙木) 女 특징", scenes=None, caption="hi #a"):
 
 
 class ReelPostprocessTest(unittest.TestCase):
+    def setUp(self):
+        # 용어 가드(hook_guard)가 실제 LLM을 부르지 않도록 막는다 (실패 -> 대체안 경로로 결정적 동작)
+        p = mock.patch.object(hook_guard, "_default_llm", side_effect=RuntimeError("no network in tests"))
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_title_has_no_hanja_and_fits(self):
         s = m._enforce_shortform_cta(_script(title="을목(乙木) 여자 특징? 이거 모르면 진짜 후회합니다"), "SAJU", "을목 여자")
         self.assertNotRegex(s.title, r"[一-鿿]")

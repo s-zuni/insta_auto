@@ -68,7 +68,8 @@ REELS_PERSONA = """[릴스 100만 바이럴 디렉터 페르소나]
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. MBTI 영문 대문자와 숫자를 제외한 본문은 모두 자연스러운 순수 한글 구어체로 작성합니다.
 - 제목(title)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'이어야 합니다.
   (예: "겉은 다정한데 손절 제일 빠른 이유", "00년생 용띠가 인간관계 지치는 이유", "올해 인연 놓치면 평생 후회할 사주", "3개 이상 맞으면 진짜 100%")
-- 제목(title)에 한자 금지, 한글/영문 대문자/숫자만 사용."""
+- 제목(title)에 한자 금지, 한글/영문 대문자/숫자만 사용.
+- [용어 금지 - 절대 엄수] 제목(title), 훅(hook), 씬 1 narration(첫 문장)에는 일간(갑목·을목·병화 등)·신살(도화살 등)·십성(식신·정인 등)·대운·오행 같은 사주 전문 용어를 쓰지 마세요. 누구나 바로 대입되는 일상 장면으로 열고, 이런 용어는 씬 4~6에서 "사실 이게 ○○인데"로 풀어주세요."""
 
 FIXED_SHORTFORM_CTA = "내 생년월일과 MBTI 조합의 삼 년 운세와 솔루션은 댓글에 분석 남기거나 프로필 링크에서 무료로 확인해보세요!"
 FIXED_CAPTION_CTA = "💬 댓글에 [분석] 남기면 링크 전송!\n👉 프로필 링크에서 내 생년월일 x MBTI 조합의 3년 운세와 솔루션을 무료로 확인하세요!"
@@ -113,6 +114,31 @@ DYNAMIC_SHORTFORM_CTAS = [
 ]
 
 
+def _enforce_plain_hook(script: ReelsScript, topic: str = "") -> ReelsScript:
+    """화면 제목, hook, 첫 장면 음성(씬 1)에 사주 전문 용어가 있으면 쉬운 말로 다시 쓴다.
+    재작성 후에도 남으면 제목/훅만 용어 없는 대체안으로 바꾼다(씬 1은 영상 흐름 때문에 그대로 두고 경고만)."""
+    from pipeline import hook_guard
+    scene1 = script.scenes[0].narration if script.scenes else ""
+    fields = {k: v for k, v in
+              {"title": script.title or "", "hook": script.hook or "", "scene1": scene1}.items() if v}
+    out, remaining = hook_guard.enforce_plain(fields, context=topic or script.title or "")
+    if "title" in out:
+        script.title = out["title"]
+    if "hook" in out:
+        script.hook = out["hook"]
+    if "scene1" in out and script.scenes:
+        script.scenes[0].narration = out["scene1"]
+    for key in remaining:
+        if key == "title":
+            script.title = hook_guard.plain_fallback()[0]
+        elif key == "hook":
+            s1 = out.get("scene1", "")
+            script.hook = s1 if s1 and not hook_guard.find_jargon(s1) else hook_guard.plain_fallback()[1]
+        else:
+            print("[HOOK_GUARD][WARN] 씬 1 나레이션에 사주 용어가 남아 있습니다(재작성 실패).")
+    return script
+
+
 def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "") -> ReelsScript:
     """숏폼(릴스, 숏츠)의 초반 씬 media_type 지정 및 마지막 씬 내레이션·캡션에 고전환 3중 CTA를 적용합니다."""
     for idx, sc in enumerate(script.scenes):
@@ -147,6 +173,9 @@ def _enforce_shortform_cta(script: ReelsScript, series: str = "", topic: str = "
     # 오늘의 운세 관련 해시태그 정리
     script.instagram_caption = script.instagram_caption.replace("#오늘의운세", "#운세").replace("#오늘운세", "#운세")
 
+    # 제목/훅/씬1에서 사주 전문 용어 제거 (hook_guard)
+    _enforce_plain_hook(script, topic)
+
     # 제목 줄바꿈 제거 및 길이 제한
     from pipeline.topic_planner import _fit_title
     script.title = _fit_title(script.title, limit=22)
@@ -159,8 +188,8 @@ def generate_mbti_saju_script(series: str, context: Optional[dict] = None, model
     user_prompt = f"""인스타그램 100만 바이럴 릴스 대본 JSON을 작성하세요.
 시리즈: {series} | 컨텍스트: {json.dumps(context, ensure_ascii=False)}
 JSON 스키마:
-- title: 릴스 화면 상단 제목 (14~20자 완성된 훅 제목, 결핍·궁금증 자극, 말 끊김 금지, 한자 절대 금지)
-- hook: 초반 2초 후킹 대사
+- title: 릴스 화면 상단 제목 (14~20자 완성된 훅 제목, 결핍·궁금증 자극, 말 끊김 금지, 한자 절대 금지, 일간/신살/십성/대운 등 사주 전문 용어 금지)
+- hook: 초반 2초 후킹 대사 (사주 전문 용어 금지, 일상 장면으로)
 - scenes: 씬 리스트 7~9개 (뒤에 시스템이 CTA 씬 2개를 자동 추가하여 총 9~11씬이 됨)
   * scene_id: 1부터 순차 증가
   * narration: 한국어 구어체, 한 씬 = 한 문장(공백 포함 22~38자, 한자 절대 금지)
