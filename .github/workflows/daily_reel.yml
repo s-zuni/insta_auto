@@ -61,6 +61,9 @@ jobs:
           IMAGE_ENGINE: gemini
           GEMINI_IMAGE_MODEL: gemini-2.5-flash-image
           USE_GOOGLE_FLOW: 'false'
+          # 훅(제목/훅/씬1 음성)에서 출생연도·띠, MBTI 4글자 호명 금지 (ig-audit: 정체성 호명 훅은 조회가 낮았음)
+          HOOK_BAN_BIRTHYEAR: 'true'
+          HOOK_BAN_MBTI: 'true'
         run: |
           if [ -n "${{ github.event.inputs.topic }}" ]; then
             python -m pipeline.auto_runner --topic "${{ github.event.inputs.topic }}"
