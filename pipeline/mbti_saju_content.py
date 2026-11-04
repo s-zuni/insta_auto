@@ -67,7 +67,7 @@ REELS_PERSONA = """[릴스 100만 바이럴 디렉터 페르소나]
 - MBTI 유형(예: INFP, ENTJ, ESFJ) 및 'MBTI' 단어는 한글 음차(인프피, 엠비티아이)가 아닌 반드시 표준 영문 대문자(예: INFP, MBTI)로 작성하세요.
 - narration 필드에는 한자(漢字)를 절대 포함하지 마세요. MBTI 영문 대문자와 숫자를 제외한 본문은 모두 자연스러운 순수 한글 구어체로 작성합니다.
 - 제목(title)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'이어야 합니다.
-  (예: "겉은 다정한데 손절 제일 빠른 이유", "00년생 용띠가 인간관계 지치는 이유", "올해 인연 놓치면 평생 후회할 사주", "3개 이상 맞으면 진짜 100%")
+  (예: "겉은 다정한데 손절 제일 빠른 이유", "00년생 용띠가 인간관계 지치는 이유", "올해 인연 놓치면 평생 후회할 사주", "3개 이상 맞으면 정 떨어지면 칼같은 사람")
 - 제목(title)에 한자 금지, 한글/영문 대문자/숫자만 사용.
 - [용어 금지 - 절대 엄수] 제목(title), 훅(hook), 씬 1 narration(첫 문장)에는 일간(갑목·을목·병화 등)·신살(도화살 등)·십성(식신·정인 등)·대운·오행 같은 사주 전문 용어를 쓰지 마세요. 누구나 바로 대입되는 일상 장면으로 열고, 이런 용어는 씬 4~6에서 "사실 이게 ○○인데"로 풀어주세요."""
 
@@ -121,7 +121,9 @@ def _enforce_plain_hook(script: ReelsScript, topic: str = "") -> ReelsScript:
     scene1 = script.scenes[0].narration if script.scenes else ""
     fields = {k: v for k, v in
               {"title": script.title or "", "hook": script.hook or "", "scene1": scene1}.items() if v}
-    out, remaining = hook_guard.enforce_plain(fields, context=topic or script.title or "")
+    # 재작성 맥락은 주문 주제가 아니라 '실제 대본 내용'이어야 제목과 영상 내용이 어긋나지 않는다
+    body = " ".join(sc.narration for sc in script.scenes[:4] if getattr(sc, "narration", ""))
+    out, remaining = hook_guard.enforce_plain(fields, context=body or topic or script.title or "")
     if "title" in out:
         script.title = out["title"]
     if "hook" in out:

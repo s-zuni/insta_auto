@@ -221,9 +221,10 @@ def wrap_natural_title(
     if best_split:
         return best_split
 
-    # 3. 폴백: 균형 래핑
-    lines = wrap_by_pixel_width(clean, font, max_width)
-    return lines[:max_lines]
+    # 3. 폴백: 폭에 맞춰 줄바꿈. max_lines로 자르지 않는다 — 예전에는 lines[:max_lines]로 넘치는 글자를 버려
+    # 호출부의 '2줄 이하면 통과' 루프가 글자 크기를 줄이지 못하고 제목 끝("진짜 이유")이 사라졌다.
+    # 2줄을 넘으면 호출부가 글자 크기를 줄이도록 전체 줄을 그대로 돌려준다.
+    return wrap_by_pixel_width(clean, font, max_width)
 
 
 _PUNCT_RE = re.compile(r"[^\w가-힣]", re.UNICODE)

@@ -91,13 +91,13 @@ def infer_curiosity_badge(title: str) -> str:
     if any(k in t for k in ("도화살", "홍염살", "매력", "인기")):
         return "[ 소름 주의 ] 치명적 사주 매력"
     if any(k in t for k in ("손절", "겉착", "착한", "칼같", "반전", "오해")):
-        return "[ 반전 주의 ] 99%가 속는 사주 본성"
+        return "[ 반전 주의 ] 겉과 속이 다른 사람들"  # 근거 없는 수치(99% 등)는 쓰지 않는다
     if any(k in t for k in ("3개", "체크", "해당", "맞으면")):
-        return "[ 체크리스트 ] 3개 맞으면 100%"
+        return "[ 체크리스트 ] 3개 이상이면 해당"
     if any(k in t for k in ("궁합", "연애", "남자", "여자", "썸", "카톡")):
         return "[ 연애 사주 ] 소름 돋는 상대 속마음"
     if any(k in t for k in ("대운", "징조", "신호", "돈", "재물", "풀리")):
-        return "[ 대운 시그널 ] 인생 터지기 직전 징조"
+        return "[ 시그널 ] 인생 풀리기 직전 징조"  # 화면 첫 프레임에 보이는 문구라 '대운' 같은 용어는 쓰지 않는다
     return "[ 사주 × 심리 ] 소름 팩트체크"
 
 
@@ -468,7 +468,7 @@ def generate_scene_images(
 
     # 이전 실행의 잔여 비디오 파일 정리 (FLOW_REUSE_EXISTING=true 가 아닐 때)
     if os.getenv("FLOW_REUSE_EXISTING", "").strip().lower() not in ("1", "true", "yes"):
-        for old_vid in video_dir.glob("scene_*_raw.mp4"):
+        for old_vid in list(video_dir.glob("scene_*_raw.mp4")) + list(video_dir.glob("scene_*_raw.mp4.src")):
             try:
                 old_vid.unlink()
             except Exception:

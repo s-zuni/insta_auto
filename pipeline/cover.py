@@ -45,8 +45,7 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
 def infer_mbtiju_badge(title: str, category_tag: str = "") -> str:
     """제목에서 출생연도, 띠, 일간, MBTI를 자동 추출하여 미니멀한 타겟 태그 문구를 만듭니다."""
     if category_tag.strip():
-        clean_tag = category_tag.strip().strip("[] ")
-        return f"✦ {clean_tag} ✦"
+        return _plain_badge(category_tag)
     t = (title or "").upper()
 
     found_year = ""
@@ -75,22 +74,32 @@ def infer_mbtiju_badge(title: str, category_tag: str = "") -> str:
             break
 
     if found_year and found_zodiac and found_mbti:
-        return f"✦ {found_year} {found_zodiac} × {found_mbti} ✦"
+        return f"{found_year} {found_zodiac} × {found_mbti}"
     if found_year and found_dm and found_mbti:
-        return f"✦ {found_year} {found_dm} × {found_mbti} ✦"
+        return f"{found_year} {found_dm} × {found_mbti}"
     if found_year and found_mbti:
-        return f"✦ {found_year} × {found_mbti} ✦"
+        return f"{found_year} × {found_mbti}"
     if found_zodiac and found_mbti:
-        return f"✦ {found_zodiac} × {found_mbti} ✦"
+        return f"{found_zodiac} × {found_mbti}"
     if found_dm and found_mbti:
-        return f"✦ {found_dm} × {found_mbti} ✦"
+        return f"{found_dm} × {found_mbti}"
     if found_mbti:
-        return f"✦ {found_mbti} 사주 심층 분석 ✦"
+        return f"{found_mbti} 사주 심층 분석"
     if "TOP" in t or "조합" in title:
-        return "✦ 2026 대박 사주 × MBTI 조합 ✦"
+        return "2026 대박 사주 × MBTI 조합"
 
-    raw_badge = infer_curiosity_badge(title).strip("[] ")
-    return f"✦ {raw_badge} ✦"
+    return _plain_badge(infer_curiosity_badge(title))
+
+
+def _plain_badge(text: str) -> str:
+    """'[ 반전 주의 ] 겉과 속이 다른 사람들' -> '반전 주의 · 겉과 속이 다른 사람들'.
+    strip("[] ")는 가운데 ']'를 남겨 괄호가 한쪽만 보였다. 또 '✦'는 Pretendard에 글리프가 없어 네모(두부)로 깨지므로 쓰지 않는다."""
+    t = (text or "").strip()
+    m = re.match(r"\[\s*(.+?)\s*\]\s*(.*)$", t)
+    if m:
+        head, tail = m.group(1), m.group(2).strip()
+        return f"{head} · {tail}" if tail else head
+    return t.strip("[] ")
 
 
 def build_reel_cover(
@@ -184,11 +193,12 @@ def build_reel_cover(
         font = _font(title_size, bold=True)
         lines = wrap_natural_title(clean_title, font, max_title_w, max_lines=2) or [clean_title]
         line_h = int(title_size * 1.28)
-        if (len(lines) <= 2 and len(lines) * line_h <= 380) or title_size <= 86:
+        if (len(lines) <= 2 and len(lines) * line_h <= 380) or title_size <= 70:
             break
         title_size -= 4
 
-    lines = lines[:2]
+    if len(lines) > 2:  # 최소 크기에서도 넘치면 글자를 버리지 않고 마지막 줄에 합친다
+        lines = [lines[0], " ".join(lines[1:])]
     # 만약 한 줄인데 어절이 3개 이상이면 시각적 리듬감을 위해 2줄 분할
     if len(lines) == 1:
         words = lines[0].split()
@@ -229,7 +239,7 @@ def build_reel_cover(
 
     # 5. 하단 미니멀 브랜드 워터마크 (Y=1460, 3:4 그리드 하단 안전 영역)
     # 기존의 잡다한 테이프/뱃지를 걷어내고 세련된 한 줄 브랜딩만 은은하게 유지
-    brand_text = "✦ mbtiju.com 사주 × MBTI 심층 분석 ✦"
+    brand_text = "mbtiju.com 사주 × MBTI 심층 분석"
     brand_font = _font(30, bold=False)
     d_ov.text(
         (W // 2, 1460),

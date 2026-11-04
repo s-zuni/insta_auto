@@ -439,12 +439,46 @@ def acquire_scene_video(
     output_dir.mkdir(parents=True, exist_ok=True)
     video_path = output_dir / f"scene_{scene_id:02d}_raw.mp4"
 
-    # 이미 로컬에 사전 추출된 Flow 영상이 있는 경우 재사용 (FLOW_REUSE_EXISTING=true)
+    # 로컬에 이미 있는 영상은 '같은 visual_prompt로 만든 클립'일 때만 재사용한다 (FLOW_REUSE_EXISTING=true).
+    # 예전엔 파일 크기만 보고 재사용해서, 어떤 대본이든 첫 2씬(훅)에 옛날 클립이 그대로 붙었다.
     if os.getenv("FLOW_REUSE_EXISTING", "").strip().lower() in ("1", "true", "yes") and video_path.is_file():
-        if video_path.stat().st_size > 30_000:
-            print(f"    [VIDEO-SOURCE] ♻️ 사전 생성된 영상 소스 재사용 -> {video_path.name}")
+        if video_path.stat().st_size > 30_000 and _source_matches(video_path, prompt):
+            print(f"    [VIDEO-SOURCE] ♻️ 같은 프롬프트로 만든 영상 소스 재사용 -> {video_path.name}")
             return video_path
+        print(f"    [VIDEO-SOURCE] ⚠️ {video_path.name}는 이번 씬 프롬프트로 만든 영상이 아니어서 재사용하지 않습니다.")
 
+    found = _fetch_scene_video(prompt, video_path)
+    if found:
+        _write_source_tag(found, prompt)
+    return found
+
+
+def _prompt_key(prompt: str) -> str:
+    import hashlib
+    return hashlib.sha1((prompt or "").strip().encode("utf-8")).hexdigest()
+
+
+def _tag_path(video_path: Path) -> Path:
+    return video_path.with_name(video_path.name + ".src")
+
+
+def _write_source_tag(video_path: Path, prompt: str) -> None:
+    """영상 옆에 '어떤 프롬프트로 만들었는지' 해시를 남겨, 나중에 재사용 여부를 검증한다."""
+    try:
+        _tag_path(video_path).write_text(_prompt_key(prompt), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _source_matches(video_path: Path, prompt: str) -> bool:
+    """태그가 없거나(옛 클립) 프롬프트가 다르면 False."""
+    try:
+        return _tag_path(video_path).read_text(encoding="utf-8").strip() == _prompt_key(prompt)
+    except OSError:
+        return False
+
+
+def _fetch_scene_video(prompt: str, video_path: Path) -> Optional[Path]:
     if generate_with_google_flow_browser(prompt, video_path, asset_type="video"):
         return video_path
 

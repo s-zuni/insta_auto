@@ -387,6 +387,21 @@ def _concat_copy_merge(clip_paths: List[Path], temp_dir: Path, ffmpeg_bin: str, 
         raise RuntimeError(f"FFmpeg 하드컷 병합 실패:\n{res.stderr[-600:]}")
 
 
+def _resolve_scene_video(video_map: Dict[int, str], scene_id: int, img_path: str) -> Optional[str]:
+    """씬에 오버레이할 영상 경로. 파이프라인이 이번 실행에서 확보해 넘긴 video_paths만 쓴다.
+    예전에는 video_paths에 없어도 assets/videos/scene_XX_raw.mp4가 있으면 자동으로 붙여서,
+    로컬에 남은 옛날 클립이 어떤 대본이든 첫 2씬(훅)에 합성됐다.
+    수동 합성 테스트에서 옛 방식이 필요하면 COMPOSER_AUTODETECT_VIDEOS=true."""
+    vid = video_map.get(scene_id)
+    if vid:
+        return vid
+    if os.getenv("COMPOSER_AUTODETECT_VIDEOS", "").strip().lower() in ("1", "true", "yes"):
+        auto_vid = Path(img_path).resolve().parent.parent / "videos" / f"scene_{scene_id:02d}_raw.mp4"
+        if auto_vid.is_file():
+            return str(auto_vid)
+    return None
+
+
 def merge_clips_with_crossfade(
     clip_paths: List[Path],
     durations: List[float],
@@ -489,12 +504,7 @@ def compose_reels_video(
         raw_audio_p = str(_get_field(sc, "audio_path", ""))
         audio_p = _prepare_scene_audio_with_sfx(raw_audio_p, scene_id, total_scenes, temp_dir, ffmpeg_bin)
 
-        # video_paths 인자가 없더라도 assets/videos/scene_XX_raw.mp4 가 존재하면 자동 감지
-        vid_p = video_map.get(scene_id)
-        if not vid_p:
-            auto_vid = Path(img_p).resolve().parent.parent / "videos" / f"scene_{scene_id:02d}_raw.mp4"
-            if auto_vid.is_file():
-                vid_p = str(auto_vid)
+        vid_p = _resolve_scene_video(video_map, scene_id, img_p)
 
         clip_p = temp_dir / f"clip_{scene_id:02d}.mp4"
         rendered_video = False

@@ -10,6 +10,7 @@
 - 막는 것: 일간 10종, 신살, 십성(상관 제외), 대운/원국 등 명리 용어, 자미두수 용어, 이미 쓴 줄임말('겉착속칼').
 - 안 막는 것: '사주', 'MBTI'(기본), 출생연도/띠, 타로. MBTI까지 막으려면 HOOK_BAN_MBTI=true.
   (MBTI는 표본이 적어 용어 효과와 분리되지 않았고 서비스 정체성이라 기본은 허용)
+- 출생연도/띠 호명("99년생 토끼띠 ...")은 기본 허용, 막으려면 HOOK_BAN_BIRTHYEAR=true.
 - 끄려면 ALLOW_JARGON_HOOKS=true.
 - '상관'은 '상관없다'와 겹치고 '정인/정관'은 이름·일상어와 겹칠 수 있어 정인만 포함, 상관은 제외.
 """
@@ -33,6 +34,8 @@ JARGON_TERMS: Tuple[str, ...] = (
 )
 
 _MBTI_RE = re.compile(r"(?<![A-Za-z])[IE][NS][TF][JP](?![A-Za-z])")
+_BIRTHYEAR_RE = re.compile(
+    r"\d{2}년생|(?:쥐|소|호랑이|범|토끼|용|뱀|말|양|원숭이|닭|개|돼지)띠")
 
 # 용어 없이도 이긴 공식("다 퍼주는 사람이 ..." 계열)에서 가져온 최후 대체안 (제목, 훅)
 PLAIN_FALLBACKS: List[Tuple[str, str]] = [
@@ -52,6 +55,10 @@ def ban_mbti() -> bool:
     return os.getenv("HOOK_BAN_MBTI", "").strip().lower() in ("1", "true", "yes")
 
 
+def ban_birthyear() -> bool:
+    return os.getenv("HOOK_BAN_BIRTHYEAR", "").strip().lower() in ("1", "true", "yes")
+
+
 def find_jargon(text: str) -> List[str]:
     """text에 들어 있는 금지 용어 목록(없으면 빈 리스트). ALLOW_JARGON_HOOKS면 항상 빈 리스트."""
     if not text or allow_jargon():
@@ -59,6 +66,8 @@ def find_jargon(text: str) -> List[str]:
     found = [t for t in JARGON_TERMS if t in text]
     if ban_mbti():
         found += _MBTI_RE.findall(text)
+    if ban_birthyear():
+        found += _BIRTHYEAR_RE.findall(text)
     return found
 
 
