@@ -2,9 +2,9 @@ name: Daily MBTI x Saju Reel & Shorts Automation
 
 on:
   schedule:
-    # 매일 18:28 KST (영상 생성 2분 소요 -> 18:30 KST 정시 공개, 18:28 KST = 09:28 UTC)
-    # 정각/30분의 GitHub 대기열 병목을 우회하기 위해 28분으로 최적화
-    - cron: '28 9 * * *'
+    # 매일 17:50 KST (08:50 UTC)에 시작해 영상을 만들고, 게시 직전에 18:30 KST까지 대기 후 공개.
+    # GitHub 스케줄 지연(최대 ~2시간)을 대기 시간으로 흡수. 목표 시각 +2h를 넘기거나 새벽이면 게시 건너뜀.
+    - cron: '50 8 * * *'
   workflow_dispatch:
     inputs:
       topic:
@@ -20,7 +20,7 @@ jobs:
   generate_and_publish:
     name: Generate & Publish Reel/Shorts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
 
     steps:
       - name: Checkout Code
@@ -68,13 +68,16 @@ jobs:
           # 훅(제목/훅/씬1 음성)에서 출생연도·띠, MBTI 4글자 호명 금지 (ig-audit: 정체성 호명 훅은 조회가 낮았음)
           HOOK_BAN_BIRTHYEAR: 'true'
           HOOK_BAN_MBTI: 'true'
+          # 입력값은 env로 전달 (셸 인젝션/따옴표 문제 방지)
+          INPUT_TOPIC: ${{ github.event.inputs.topic }}
+          INPUT_YT_SCHEDULE: ${{ github.event.inputs.youtube_schedule }}
         run: |
-          ARGS=""
-          if [ -n "${{ github.event.inputs.topic }}" ]; then
-            ARGS="$ARGS --topic '${{ github.event.inputs.topic }}'"
+          ARGS=()
+          if [ -n "$INPUT_TOPIC" ]; then
+            ARGS+=(--topic "$INPUT_TOPIC")
           fi
-          if [ -n "${{ github.event.inputs.youtube_schedule }}" ]; then
-            ARGS="$ARGS --youtube-schedule-kst '${{ github.event.inputs.youtube_schedule }}'"
+          if [ -n "$INPUT_YT_SCHEDULE" ]; then
+            ARGS+=(--youtube-schedule-kst "$INPUT_YT_SCHEDULE")
           fi
-          python -m pipeline.auto_runner $ARGS
+          python -m pipeline.auto_runner "${ARGS[@]}"
 

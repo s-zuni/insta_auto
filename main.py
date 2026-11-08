@@ -65,7 +65,8 @@ def run_pipeline(
     publish_insta: bool = True,
     publish_youtube: bool = True,
     output_path: str = "assets/output/final_reel.mp4",
-    youtube_schedule_kst: Optional[str] = "18:30"
+    youtube_schedule_kst: Optional[str] = "18:30",
+    publish_gate=None,
 ) -> dict:
     """인스타그램 릴스 및 유튜브 숏츠 생성/배포 파이프라인 전체를 원스톱으로 실행합니다."""
     start_total_time = time.time()
@@ -203,6 +204,13 @@ def run_pipeline(
             custom_folder_name=folder_tag
         )
         print(f"  ✅ Drive 단계 완료 ({time.time() - t0:.1f}초)")
+
+    # 게시 직전 게이트: 목표 시각(예: 18:30 KST)까지 대기하거나, 허용 구간을 벗어났으면 게시를 건너뜀
+    if publish_gate and (publish_insta or publish_youtube):
+        if not publish_gate():
+            print("\n⛔ 게시 게이트가 게시를 차단했습니다 (허용 시간대 밖). 영상만 생성하고 종료합니다.")
+            publish_insta = False
+            publish_youtube = False
 
     # 6. Instagram 릴스 자동 게시
     insta_result = {}

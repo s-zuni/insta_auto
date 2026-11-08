@@ -50,6 +50,65 @@ def tg_notify(text: str):
         print(f"[NOTIFY][WARN] 텔레그램 요청 오류: {e}")
 
 
+# ── 게시 시각 가드 ─────────────────────────────────────────────
+PUBLISH_TARGET_KST = os.getenv("PUBLISH_TARGET_KST", "18:30")  # 인스타 공개 목표 시각
+PUBLISH_LEAD_SEC = int(os.getenv("PUBLISH_LEAD_SEC", "90"))  # 업로드/컨테이너 처리 시간 보정
+PUBLISH_MAX_WAIT_MIN = int(os.getenv("PUBLISH_MAX_WAIT_MIN", "100"))  # 목표 시각 전 최대 대기 허용
+PUBLISH_LATE_GRACE_MIN = int(os.getenv("PUBLISH_LATE_GRACE_MIN", "120"))  # 목표 시각 이후 허용 지연
+
+
+def _now_and_target():
+    import datetime
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Asia/Seoul")
+    except Exception:
+        tz = datetime.timezone(datetime.timedelta(hours=9))
+    now = datetime.datetime.now(tz)
+    try:
+        h, m = (int(x) for x in PUBLISH_TARGET_KST.split(":")[:2])
+    except Exception:
+        h, m = 18, 30
+    return now, now.replace(hour=h, minute=m, second=0, microsecond=0)
+
+
+def _publish_window():
+    """('wait', 대기초) | ('go', 0) | ('skip', 목표 대비 초). 새벽 등 허용 구간 밖이면 skip."""
+    now, target = _now_and_target()
+    delta = (target - now).total_seconds()  # 양수: 목표까지 남음, 음수: 지남
+    if 0 < delta <= PUBLISH_MAX_WAIT_MIN * 60:
+        return "wait", max(0.0, delta - PUBLISH_LEAD_SEC)
+    if -PUBLISH_LATE_GRACE_MIN * 60 <= delta <= 0:
+        return "go", 0.0
+    return "skip", delta
+
+
+def _notify_skip():
+    now, target = _now_and_target()
+    msg = (
+        f"⚠️ <b>[게시 시각 가드] 허용 시간대 밖이라 게시를 건너뜁니다</b>\n\n"
+        f"• 목표 공개: <b>{target.strftime('%H:%M')} KST</b>\n"
+        f"• 현재: <b>{now.strftime('%H:%M:%S')} KST</b>\n"
+        f"• 사유: GitHub 스케줄 지연 등으로 새벽/비정상 시각 실행 감지\n"
+        f"인스타 새벽 오발행 방지를 위해 게시하지 않았습니다."
+    )
+    print(f"[GUARD] {msg}")
+    tg_notify(msg)
+
+
+def _publish_gate() -> bool:
+    """게시 직전 호출: 목표 시각 전이면 대기, 허용 구간 밖(새벽 등)이면 False."""
+    state, secs = _publish_window()
+    if state == "skip":
+        _notify_skip()
+        return False
+    if state == "wait" and secs > 0:
+        now, target = _now_and_target()
+        print(f"[GUARD] ⏳ {target.strftime('%H:%M')} KST 공개까지 {secs / 60:.1f}분 대기 (현재 {now.strftime('%H:%M:%S')} KST)")
+        time.sleep(secs)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="MBTI×사주 릴스&숏츠 자동화 러너 (GitHub Actions / Cron용)")
     parser.add_argument("--topic", type=str, default="", help="특정 주제 (미지정 시 자동 바이럴 기획)")
@@ -62,31 +121,15 @@ def main():
     # GitHub Actions 스케줄 큐 지연(새벽 지연 실행) 감지 및 방어
     # GITHUB_EVENT_NAME == 'schedule'인 경우에만 18:00~21:00 KST 범위를 벗어난 심각한 지연을 차단합니다.
     # (수동 실행이나 cron-job.org 등의 workflow_dispatch는 언제든 정상 실행)
-    github_event = os.getenv("GITHUB_EVENT_NAME", "").lower()
-    if github_event == "schedule":
-        try:
-            import datetime
-            try:
-                import zoneinfo
-                kst_tz = zoneinfo.ZoneInfo("Asia/Seoul")
-            except Exception:
-                kst_tz = datetime.timezone(datetime.timedelta(hours=9))
-            now_kst = datetime.datetime.now(kst_tz)
-            # 원래 18:28 KST 스케줄: 18:00 ~ 20:30 허용
-            if now_kst.hour < 18 or now_kst.hour >= 21:
-                warn_msg = (
-                    f"⚠️ <b>[GitHub Actions 지연 감지] 새벽 오발행 차단</b>\n\n"
-                    f"• 원래 목표: <b>18:28 KST</b>\n"
-                    f"• 실제 러너 시작: <b>{now_kst.strftime('%H:%M:%S')} KST</b>\n"
-                    f"• 사유: GitHub 무료 러너 대기열 병목으로 지연 발생\n\n"
-                    f"인스타그램 피드 및 숏츠 새벽 오발행을 방지하기 위해 작업을 안전하게 건너뜁니다.\n"
-                    f"👉 정시(18:28) 확정 발행을 위해 <b>cron-job.org</b> 웹훅 연동을 권장합니다."
-                )
-                print(f"[GUARD] {warn_msg}")
-                tg_notify(warn_msg)
-                sys.exit(0)
-        except Exception as e:
-            print(f"[GUARD][WARN] 지연 검사 중 오류(무시하고 계속): {e}")
+    # 새 방식: 일찍 시작해 영상을 만들고, 게시 직전에 목표 시각(18:30 KST)까지 대기. 허용 구간 밖이면 시작 단계에서 즉시 종료.
+    publish_gate = None
+    if os.getenv("GITHUB_EVENT_NAME", "").lower() == "schedule":
+        state, secs = _publish_window()
+        if state == "skip":
+            _notify_skip()
+            sys.exit(0)
+        print(f"[GUARD] 게시 윈도우: {state} (게시까지 대기 약 {secs / 60:.1f}분) - 생성 후 목표 시각에 게시합니다.")
+        publish_gate = _publish_gate
 
     print("=" * 65)
     print("🚀 [CRON/ACTIONS] MBTI×사주 릴스 자동화 파이프라인 가동")
@@ -148,6 +191,7 @@ def main():
             publish_insta=publish,
             publish_youtube=publish,
             youtube_schedule_kst=args.youtube_schedule_kst,
+            publish_gate=publish_gate,
         )
         elapsed = time.time() - t0
 
