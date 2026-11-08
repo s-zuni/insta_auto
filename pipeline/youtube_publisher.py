@@ -5,8 +5,9 @@ Publishes 9:16 vertical videos to YouTube Shorts with automatic OAuth2 refresh t
 import os
 import sys
 import json
+import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -79,16 +80,64 @@ def get_registered_channel_info() -> Dict[str, Any]:
     return {}
 
 
+def get_target_publish_at(scheduled_time_kst: Optional[str] = "18:30") -> Tuple[Optional[str], Optional[str]]:
+    """
+    KST 기준 목표 시각(기본값 18:30)을 YouTube Data API v3의 publishAt 규격(RFC 3339 UTC)으로 변환합니다.
+    
+    규칙:
+    1. scheduled_time_kst가 'none', 'immediate', 'off' 등이면 예약 없이 즉시 공개.
+    2. 현재 시각(KST) 대비 목표 시각이 최소 5분 이상 미래라면 오늘 해당 시각으로 예약.
+    3. 만약 오늘 목표 시각이 이미 지났거나 5분 미만으로 남았다면 None을 반환(즉시 공개 처리).
+    
+    반환: (publish_at_iso_utc, display_kst_str)
+    """
+    if not scheduled_time_kst or str(scheduled_time_kst).strip().lower() in ("none", "immediate", "now", "off", "false", ""):
+        return None, None
+
+    try:
+        parts = str(scheduled_time_kst).strip().split(":")
+        target_h = int(parts[0])
+        target_m = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        target_h, target_m = 18, 30
+
+    try:
+        import zoneinfo
+        kst_tz = zoneinfo.ZoneInfo("Asia/Seoul")
+    except Exception:
+        kst_tz = datetime.timezone(datetime.timedelta(hours=9))
+
+    utc_tz = datetime.timezone.utc
+    now_kst = datetime.datetime.now(kst_tz)
+    target_dt_kst = now_kst.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+
+    diff_seconds = (target_dt_kst - now_kst).total_seconds()
+
+    # 목표 시각까지 최소 5분(300초) 이상 남아 있는 경우에만 YouTube 예약 공개 등록
+    # (유튜브 Data API는 현재 시각보다 과거이거나 너무 임박한 publishAt에 대해 에러를 반환함)
+    if diff_seconds >= 300:
+        target_dt_utc = target_dt_kst.astimezone(utc_tz)
+        publish_at_iso = target_dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        display_kst = target_dt_kst.strftime("%Y-%m-%d %H:%M KST")
+        return publish_at_iso, display_kst
+
+    return None, None
+
+
 def upload_shorts_to_youtube(
     video_path: str | Path,
     title: str,
     description: str,
     tags: Optional[List[str]] = None,
-    privacy_status: str = "public"
+    privacy_status: str = "public",
+    scheduled_time_kst: Optional[str] = "18:30"
 ) -> Dict[str, Any]:
     """
     생성된 9:16 비디오를 YouTube Shorts로 업로드합니다.
-    제목이나 설명에 #Shorts 태그가 포함되어야 유튜브에서 Shorts로 자동 분류합니다.
+    - scheduled_time_kst: KST 기준 예약 공개 시각 (기본값: '18:30').
+      새벽이나 낮에 작업이 실행되어도 유튜브 서버가 정시(18:30 KST)에 자동으로 공개 전환합니다.
+      이미 지난 시각이거나 비활성화 시 즉시 공개(public)로 게시됩니다.
+    - 제목이나 설명에 #Shorts 태그가 포함되어야 유튜브에서 Shorts로 자동 분류합니다.
     """
     from googleapiclient.http import MediaFileUpload
 
@@ -110,6 +159,23 @@ def upload_shorts_to_youtube(
         if not tags:
             tags = ["Shorts", "MBTI", "사주", "운세", "병오년"]
 
+        # 1. 예약 공개(publishAt) 계산
+        target_schedule = scheduled_time_kst if scheduled_time_kst is not None else os.getenv("YOUTUBE_SCHEDULE_TIME_KST", "18:30")
+        publish_at_iso, display_kst = get_target_publish_at(target_schedule)
+
+        status_body: Dict[str, Any] = {
+            "selfDeclaredMadeForKids": False
+        }
+
+        if publish_at_iso:
+            # YouTube API 규격: publishAt을 설정할 때는 privacyStatus가 반드시 'private'이어야 함
+            status_body["privacyStatus"] = "private"
+            status_body["publishAt"] = publish_at_iso
+            print(f"[YOUTUBE] ⏰ YouTube Shorts 정시 예약 발행 설정: {display_kst} (UTC: {publish_at_iso})")
+        else:
+            status_body["privacyStatus"] = privacy_status
+            print(f"[YOUTUBE] 🚀 YouTube Shorts 즉시 게시 모드 (상태: {privacy_status})")
+
         body = {
             "snippet": {
                 "title": shorts_title,
@@ -117,10 +183,7 @@ def upload_shorts_to_youtube(
                 "tags": tags,
                 "categoryId": "24"  # Entertainment
             },
-            "status": {
-                "privacyStatus": privacy_status,  # public, unlisted, private
-                "selfDeclaredMadeForKids": False
-            }
+            "status": status_body
         }
 
         print(f"[YOUTUBE] YouTube Shorts 업로드 시작 ('{shorts_title}')...")
@@ -135,13 +198,19 @@ def upload_shorts_to_youtube(
         video_id = response.get("id")
         shorts_url = f"https://www.youtube.com/shorts/{video_id}"
 
-        print(f"[SUCCESS] 🎉 YouTube Shorts 게시 완료! (ID: {video_id})")
+        is_scheduled = bool(publish_at_iso)
+        status_label = "SCHEDULED" if is_scheduled else "PUBLISHED"
+        print(f"[SUCCESS] 🎉 YouTube Shorts {'정시 예약 완료' if is_scheduled else '게시 완료'}! (ID: {video_id})")
+        if is_scheduled:
+            print(f"  ⏰ 자동 공개 예정 시각: {display_kst}")
         print(f"  ▶️ URL: {shorts_url}")
 
         return {
             "id": video_id,
-            "status": "PUBLISHED",
-            "link": shorts_url
+            "status": status_label,
+            "link": shorts_url,
+            "scheduled": is_scheduled,
+            "scheduled_time_kst": display_kst if is_scheduled else None
         }
 
     except Exception as e:

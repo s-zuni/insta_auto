@@ -11,6 +11,10 @@ on:
         description: '특정 주제 지정 (비워두면 자동 바이럴 기획)'
         required: false
         default: ''
+      youtube_schedule:
+        description: 'YouTube Shorts KST 예약 공개 시각 (기본 18:30, none 입력 시 즉시 공개)'
+        required: false
+        default: '18:30'
 
 jobs:
   generate_and_publish:
@@ -65,9 +69,12 @@ jobs:
           HOOK_BAN_BIRTHYEAR: 'true'
           HOOK_BAN_MBTI: 'true'
         run: |
+          ARGS=""
           if [ -n "${{ github.event.inputs.topic }}" ]; then
-            python -m pipeline.auto_runner --topic "${{ github.event.inputs.topic }}"
-          else
-            python -m pipeline.auto_runner
+            ARGS="$ARGS --topic '${{ github.event.inputs.topic }}'"
           fi
+          if [ -n "${{ github.event.inputs.youtube_schedule }}" ]; then
+            ARGS="$ARGS --youtube-schedule-kst '${{ github.event.inputs.youtube_schedule }}'"
+          fi
+          python -m pipeline.auto_runner $ARGS
 

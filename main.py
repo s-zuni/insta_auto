@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import time
+from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -63,7 +64,8 @@ def run_pipeline(
     upload_gdrive: bool = True,
     publish_insta: bool = True,
     publish_youtube: bool = True,
-    output_path: str = "assets/output/final_reel.mp4"
+    output_path: str = "assets/output/final_reel.mp4",
+    youtube_schedule_kst: Optional[str] = "18:30"
 ) -> dict:
     """인스타그램 릴스 및 유튜브 숏츠 생성/배포 파이프라인 전체를 원스톱으로 실행합니다."""
     start_total_time = time.time()
@@ -249,7 +251,8 @@ def run_pipeline(
                 youtube_result = upload_shorts_to_youtube(
                     video_path=final_video,
                     title=script.title,
-                    description=script.instagram_caption
+                    description=script.instagram_caption,
+                    scheduled_time_kst=youtube_schedule_kst
                 )
                 print(f"  ✅ YouTube Shorts 업로드 완료 ({time.time() - t0:.1f}초)")
             except Exception as e:
@@ -402,6 +405,7 @@ def main():
                         help="Google Drive 업로드 건너뛰기")
     parser.add_argument("--no-insta", action="store_true",
                         help="Instagram 게시 건너뛰기")
+    parser.add_argument("--youtube-schedule-kst", type=str, default="18:30", help="YouTube Shorts KST 예약 시각")
     parser.add_argument("--no-youtube", action="store_true",
                         help="YouTube Shorts 업로드 건너뛰기")
     parser.add_argument("--output", type=str, default="assets/output/final_reel.mp4",
@@ -448,7 +452,8 @@ def main():
         upload_gdrive=not args.no_gdrive,
         publish_insta=not args.no_insta,
         publish_youtube=not args.no_youtube,
-        output_path=args.output
+        output_path=args.output,
+        youtube_schedule_kst=args.youtube_schedule_kst
     )
 
 

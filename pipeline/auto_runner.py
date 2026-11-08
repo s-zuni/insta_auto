@@ -55,8 +55,38 @@ def main():
     parser.add_argument("--topic", type=str, default="", help="특정 주제 (미지정 시 자동 바이럴 기획)")
     parser.add_argument("--series", type=str, default="", help="시리즈 (미지정 시 자동 기획)")
     parser.add_argument("--mbti", type=str, default="", help="MBTI (미지정 시 자동 기획)")
+    parser.add_argument("--youtube-schedule-kst", type=str, default="18:30", help="YouTube Shorts KST 예약 공개 시각")
     parser.add_argument("--no-publish", action="store_true", help="게시 건너뛰기 (테스트용)")
     args = parser.parse_args()
+
+    # GitHub Actions 스케줄 큐 지연(새벽 지연 실행) 감지 및 방어
+    # GITHUB_EVENT_NAME == 'schedule'인 경우에만 18:00~21:00 KST 범위를 벗어난 심각한 지연을 차단합니다.
+    # (수동 실행이나 cron-job.org 등의 workflow_dispatch는 언제든 정상 실행)
+    github_event = os.getenv("GITHUB_EVENT_NAME", "").lower()
+    if github_event == "schedule":
+        try:
+            import datetime
+            try:
+                import zoneinfo
+                kst_tz = zoneinfo.ZoneInfo("Asia/Seoul")
+            except Exception:
+                kst_tz = datetime.timezone(datetime.timedelta(hours=9))
+            now_kst = datetime.datetime.now(kst_tz)
+            # 원래 18:28 KST 스케줄: 18:00 ~ 20:30 허용
+            if now_kst.hour < 18 or now_kst.hour >= 21:
+                warn_msg = (
+                    f"⚠️ <b>[GitHub Actions 지연 감지] 새벽 오발행 차단</b>\n\n"
+                    f"• 원래 목표: <b>18:28 KST</b>\n"
+                    f"• 실제 러너 시작: <b>{now_kst.strftime('%H:%M:%S')} KST</b>\n"
+                    f"• 사유: GitHub 무료 러너 대기열 병목으로 지연 발생\n\n"
+                    f"인스타그램 피드 및 숏츠 새벽 오발행을 방지하기 위해 작업을 안전하게 건너뜁니다.\n"
+                    f"👉 정시(18:28) 확정 발행을 위해 <b>cron-job.org</b> 웹훅 연동을 권장합니다."
+                )
+                print(f"[GUARD] {warn_msg}")
+                tg_notify(warn_msg)
+                sys.exit(0)
+        except Exception as e:
+            print(f"[GUARD][WARN] 지연 검사 중 오류(무시하고 계속): {e}")
 
     print("=" * 65)
     print("🚀 [CRON/ACTIONS] MBTI×사주 릴스 자동화 파이프라인 가동")
@@ -117,6 +147,7 @@ def main():
             upload_gdrive=True,
             publish_insta=publish,
             publish_youtube=publish,
+            youtube_schedule_kst=args.youtube_schedule_kst,
         )
         elapsed = time.time() - t0
 
@@ -138,7 +169,10 @@ def main():
             msg_lines.append(f"⚠️ <b>Instagram 실패:</b> {html.escape(str(insta.get('error'))[:100])}")
 
         if yt_link:
-            msg_lines.append(f"▶️ <b>YouTube 숏츠:</b> <a href=\"{yt_link}\">영상 보기</a>")
+            if youtube.get("scheduled"):
+                msg_lines.append(f"▶️ <b>YouTube 숏츠:</b> <a href=\"{yt_link}\">영상 보기</a> (⏰ {youtube.get('scheduled_time_kst')} 자동 공개 예약)")
+            else:
+                msg_lines.append(f"▶️ <b>YouTube 숏츠:</b> <a href=\"{yt_link}\">영상 보기</a>")
         elif publish and youtube.get("error"):
             msg_lines.append(f"⚠️ <b>YouTube 실패:</b> {html.escape(str(youtube.get('error'))[:100])}")
 
