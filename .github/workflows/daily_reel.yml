@@ -1,10 +1,10 @@
 name: Daily MBTI x Saju Reel & Shorts Automation
 
 on:
-  schedule:
-    # 매일 17:50 KST (08:50 UTC)에 시작해 영상을 만들고, 게시 직전에 18:30 KST까지 대기 후 공개.
-    # GitHub 스케줄 지연(최대 ~2시간)을 대기 시간으로 흡수. 목표 시각 +2h를 넘기거나 새벽이면 게시 건너뜀.
-    - cron: '50 8 * * *'
+  # cron-job.org 웹훅을 통해 매일 18:28 KST 정시에 workflow_dispatch로 즉시 실행됩니다.
+  # GitHub 무료 크론의 큐 지연(새벽 지연) 및 중복 실행을 방지하기 위해 내장 schedule은 비활성화합니다.
+  # schedule:
+  #   - cron: '50 8 * * *'
   workflow_dispatch:
     inputs:
       topic:
