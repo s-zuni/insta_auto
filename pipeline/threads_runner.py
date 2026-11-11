@@ -61,7 +61,9 @@ def determine_slot() -> str:
         # UTC + 9
         now_hour = (datetime.datetime.utcnow().hour + 9) % 24
 
-    if now_hour < 11:
+    if 0 <= now_hour < 6:
+        return "skip"
+    elif now_hour < 11:
         return "morning"
     elif now_hour < 16:
         return "afternoon"
@@ -81,6 +83,11 @@ def main():
     args = parser.parse_args()
 
     slot = determine_slot() if args.slot == "auto" else args.slot
+    if slot == "skip":
+        msg = "⚠️ <b>[Threads 가드] 새벽 시간대(00~06시 KST) 오발행 방지를 위해 건너뜁니다.</b>\nGitHub 스케줄 큐 지연으로 새벽에 실행된 요청을 차단했습니다."
+        print(f"[GUARD] {msg}")
+        tg_notify(msg)
+        sys.exit(0)
     category = args.category or None
 
     print("=" * 65)

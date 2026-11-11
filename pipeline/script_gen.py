@@ -190,25 +190,26 @@ SYSTEM_PROMPT = """
 [100만 바이럴 구성 법칙]
 1. 씬 1 (초반 1.5초 스크롤 정지 훅, media_type="video"):
    - 지루한 인사("안녕하세요", "~알아볼게요") 절대 금지!
-   - 일반 대중 100%가 보자마자 멈추는 [체크리스트형("여기서 3개 이상 맞으면"), 페이크아웃 통념반박형("겉은 다정한데 손절 제일 빠른 이유"), 일상/카톡 POV형, 대운 징조 미스터리형]으로 시작하세요.
-2. 씬 2~4 (소름 돋는 일상 장면 3연타, scene 2는 media_type="video"):
-   - 카톡 답장 속도, 퇴근 후 침대, 월급날, 싸울 때 말투 등 시청자가 "헐 내 얘기잖아" 하고 무릎을 치는 구체적 장면을 1씬 1문장(22~38자)으로 빠르게 배치하세요.
-3. 씬 5~6 (사주 x MBTI 원인 해부 및 반전):
-   - "사실 이게 성격 문제가 아니라 사주에 OO(일간/도화살/홍염살/십성) 기운이 강한 사람들의 특징이거든요"처럼 명리학 근거로 정체성을 풀어주세요. (장점 1 : 아픈 점 2 비율)
-4. 씬 7~8 (결론/현실 조언):
-   - 이 기질이 앞으로 운을 트이게 하려면 딱 무엇 하나만 바꾸면 되는지 강렬한 한 줄 조언으로 마무리하세요. (프로필 링크/댓글 CTA는 시스템이 뒤에 자동 추가합니다.)
-5. 내레이션 & 제목 규칙:
-   - MBTI 유형(예: INFP, ENTJ, ESFJ) 및 'MBTI' 단어는 한글 음차(인프피, 엠비티아이)가 아닌 반드시 표준 영문 대문자(예: INFP, MBTI)로 작성하세요.
-   - narration과 title에는 한자(漢字)를 절대 포함하지 마세요. MBTI 영문 대문자와 숫자를 제외한 본문은 순수 한글 구어체만 사용합니다.
-   - title(화면 제목)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'으로 작성하세요. (예: "겉은 다정한데 손절 제일 칼같은 이유", "00년생 용띠가 인간관계 지치는 이유")
-6. visual_prompt (Google Flow Veo 영상 & Imagen/FLUX 실사 가이드):
+   - 일반 대중 100%가 보자마자 멈추는 [체크리스트형("여기서 2개 이상 맞으면"), 페이크아웃 통념반박형("겉은 다정한데 손절 제일 빠른 사람 특징"), 일상/카톡 POV형, 대운 징조 미스터리형]으로 시작하세요.
+2. 씬 2~3 (소름 돋는 일상 팩폭 2연타, scene 2는 media_type="video"):
+   - 카톡 답장 속도, 퇴근 후 침대, 월급날, 싸울 때 말투 등 시청자가 "헐 내 얘기잖아" 하고 무릎을 치는 구체적 장면을 1씬 1문장(20~35자)으로 빠르게 배치하세요.
+3. 씬 4 (사주 x MBTI 원인 해부 및 반전):
+   - "사실 이게 성격 문제가 아니라 사주에 OO(일간/도화살/홍염살/십성) 기운이 강한 사람들의 특징이거든요"처럼 명리학 근거로 정체성을 풀어주세요.
+4. 씬 5 (결론/현실 조언):
+   - 이 기질이 앞으로 운을 트이게 하려면 무엇 하나만 바꾸면 되는지 강렬한 한 줄 조언으로 마무리하세요. (프로필 링크/댓글 CTA는 시스템이 뒤에 자동 추가합니다.)
+5. 내레이션 & 제목 규칙 (절대 엄수):
+   - 제목(title)에는 특정 MBTI(INFP 등)나 특정 사주(을목 등)를 직접 쓰지 말고, '사람 특징', 'MBTI 유형', '사주' 등 포괄적 대중 언어를 사용하세요.
+   - MBTI 유형(예: INFP, ENTJ, ESFJ) 및 'MBTI' 단어는 본문 나레이션 시 반드시 표준 영문 대문자(예: INFP, MBTI)로 작성하세요.
+   - narration과 title에는 한자(漢字)를 절대 포함하지 마세요. 본문은 순수 한글 구어체만 사용합니다.
+   - title(화면 제목)은 공백 포함 14~20자 내외로, 말이 중간에 끊기지 않는 '완성된 호기심 유발 문장'으로 작성하세요. (예: "겉은 다정한데 손절 제일 칼같은 사람 특징", "정 떨어지면 칼같은 사람 특징")
+6. visual_prompt (실사 숏폼 가이드):
    - 반드시 '영문(English)'으로 작성, Vertical 9:16 세로 풀스크린 비율.
-   - 실제 한국인이 일상(카페 창가, 퇴근길 지하철, 자취방 스탠드 조명, 한강 산책로 등)에서 찍은 자연스러운 세로 숏폼 영상/사진처럼 묘사하고, 씬 1~2에는 자연스러운 움직임(subtle movement, looking up from smartphone, sipping iced coffee 등)을 포함하세요.
-   - glowing/mystical/neon/cosmic/fantasy/3D render 금지, "no text, no letters, no watermark" 필수 포함.
+   - 어둡고 감성적인 조명(밤하늘, 촛불, 앰비언트 보케, 도시 야경)과 한국 2030의 자연스러운 일상 세로 숏폼 영상/사진. 씬 1~2에는 미세한 움직임(subtle movement, looking at smartphone)을 포함하세요. no text, no watermark, no CGI.
 """
 
 
-from pipeline.text_utils import sanitize_title
+from pipeline.text_utils import make_title_inclusive, sanitize_title
+from pipeline.topic_planner import _fit_title
 
 
 def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript:
@@ -226,7 +227,7 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
         if is_fortune:
             try:
                 from pipeline.cta import apply_reel_cta
-                _, caption_cta = apply_reel_cta(sc.scenes, sc.instagram_caption, "", topic or sc.title)
+                _, caption_cta = apply_reel_cta(sc.scenes, sc.instagram_caption, "", topic or sc.title, use_share=False)
             except Exception:
                 caption_cta = "💬 댓글에 [사주] 남기거나 👉 프로필 링크에서 내 일간부터 무료로 확인하세요!"
         else:
@@ -242,10 +243,10 @@ def generate_script(topic: str, model_name: Optional[str] = None) -> ReelsScript
                 sc.instagram_caption = f"{parts[0].strip()}\n\n{caption_cta}\n\n#{parts[1]}"
             else:
                 sc.instagram_caption = f"{sc.instagram_caption.strip()}\n\n{caption_cta}"
-        sc.title = sanitize_title(sc.title.replace("\n", " "))
-        if len(sc.title) > 16:
-            sc.title = sc.title[:16].strip()
+        sc.title = _fit_title(make_title_inclusive(sc.title), limit=22)
         return sc
+
+    return _enforce_cta(script)
 
     return _enforce_cta(script)
 

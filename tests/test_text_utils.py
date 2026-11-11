@@ -118,5 +118,40 @@ class KaraokeBlocksTest(unittest.TestCase):
         self.assertTrue(all(s >= 0 and e >= 0 for s, e, _ in blocks))
 
 
+class MakeTitleInclusiveTest(unittest.TestCase):
+    def test_replaces_specific_mbti_with_broad_terms(self):
+        from pipeline.text_utils import make_title_inclusive
+        self.assertEqual(
+            make_title_inclusive("겉은 다정한데 손절 제일 칼같은 INFP"),
+            "겉은 다정한데 손절 제일 칼같은 사람 특징"
+        )
+        self.assertEqual(
+            make_title_inclusive("INFP 특징 3가지"),
+            "사람 특징 3가지"
+        )
+        self.assertEqual(
+            make_title_inclusive("인프피가 화날 때"),
+            "이런 사람이 화날 때"
+        )
+
+    def test_replaces_day_masters_with_saju(self):
+        from pipeline.text_utils import make_title_inclusive
+        self.assertEqual(
+            make_title_inclusive("을목 여자 특징 모르면 평생 후회"),
+            "사주로 본 여자 특징 모르면 평생 후회"
+        )
+
+    def test_keeps_already_inclusive_titles(self):
+        from pipeline.text_utils import make_title_inclusive
+        self.assertEqual(
+            make_title_inclusive("착한 줄 알았는데 칼같은 사람 특징"),
+            "착한 줄 알았는데 칼같은 사람 특징"
+        )
+        self.assertEqual(
+            make_title_inclusive("사주에 이런 사람 꼭 있음"),
+            "사주에 이런 사람 꼭 있음"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

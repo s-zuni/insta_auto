@@ -88,12 +88,16 @@ def infer_curiosity_badge(title: str) -> str:
     if "TOP" in t or "조합" in t:
         return "[ 2026 대박 사주×MBTI 조합 ]"
 
+    if any(k in t for k in ("캡처", "룰렛", "키워드")):
+        return "[ 📸 캡처 챌린지 ] 멈추는 곳이 내 운명"
+    if any(k in t for k in ("선택", "고르", "1번", "2번", "3번")):
+        return "[ 🔮 운세 선택 ] 끌리는 번호 1개 선택"
     if any(k in t for k in ("도화살", "홍염살", "매력", "인기")):
         return "[ 소름 주의 ] 치명적 사주 매력"
     if any(k in t for k in ("손절", "겉착", "착한", "칼같", "반전", "오해")):
-        return "[ 반전 주의 ] 겉과 속이 다른 사람들"  # 근거 없는 수치(99% 등)는 쓰지 않는다
-    if any(k in t for k in ("3개", "체크", "해당", "맞으면")):
-        return "[ 체크리스트 ] 3개 이상이면 해당"
+        return "[ 반전 주의 ] 겉과 속이 다른 사람들"
+    if any(k in t for k in ("2개", "3개", "체크", "해당", "맞으면")):
+        return "[ 팩폭 주의 ] 2개 이상 해당 주의"
     if any(k in t for k in ("궁합", "연애", "남자", "여자", "썸", "카톡")):
         return "[ 연애 사주 ] 소름 돋는 상대 속마음"
     if any(k in t for k in ("대운", "징조", "신호", "돈", "재물", "풀리")):

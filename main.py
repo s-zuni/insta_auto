@@ -437,7 +437,7 @@ def main():
             elif is_saju:
                 series = "SAJU"
             else:
-                series = "GENERAL"
+                series = "SAJU"
         else:
             series = "MBTI"
 

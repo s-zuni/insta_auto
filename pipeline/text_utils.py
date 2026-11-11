@@ -80,6 +80,49 @@ def normalize_mbti_to_english(text: str) -> str:
     return res
 
 
+def make_title_inclusive(title: str) -> str:
+    """
+    영상 제목에서 특정 MBTI(INFP, ESTJ 등)나 특정 사주 일간(을목, 임수 등)처럼 한정적인 지칭을
+    '사람 특징', 'MBTI', '사주' 등의 포괄적인 대중 언어로 자연스럽게 치환합니다.
+    (예: '겉은 다정한데 손절 제일 칼같은 INFP' -> '겉은 다정한데 손절 제일 칼같은 사람 특징')
+    """
+    if not title:
+        return ""
+    t = normalize_mbti_to_english(title.strip())
+
+    # 1. 극과 극/궁합형: INFP vs ESTJ / INFP x ESTJ
+    t = re.sub(r"[A-Z]{4}\s*(?:vs|VS|x|X|×)\s*[A-Z]{4}", "극과 극 MBTI 유형", t)
+
+    # 2. [MBTI] 특징 / [MBTI] 성향 / [MBTI] 심리 -> 사람 특징 / 성향 / 심리
+    t = re.sub(
+        r"\b(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b\s*(특징|성향|심리)?",
+        lambda m: f"사람 {m.group(2)}" if m.group(2) else "사람 특징",
+        t,
+        flags=re.IGNORECASE,
+    )
+
+    # 3. 주격/소유격: INFP가, INFP는, INFP의 등 -> 이런 사람이
+    t = re.sub(
+        r"\b(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)(이|가|는|은|의|도)\b\s*",
+        "이런 사람이 ",
+        t,
+        flags=re.IGNORECASE,
+    )
+
+    # 4. 사주 일간(을목, 임수 등) 치환: '을목 여자 특징' -> '사주로 본 여자 특징'
+    t = re.sub(
+        r"(갑목|을목|병화|정화|무토|기토|경금|신금|임수|계수)\s*(여자|남자|사람)?",
+        lambda m: "사주로 본 " + (m.group(2) if m.group(2) else "사람"),
+        t,
+    )
+
+    # 5. 중복 단어 정리
+    t = re.sub(r"사람\s+사람\s+특징", "사람 특징", t)
+    t = re.sub(r"사람\s+사람", "사람", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t
+
+
 # 문장부호/구어체 어미/연결 어미 뒤에서 자연스럽게 끊어 자막/음성 호흡 단위를 만들기 위한 경계
 _CLAUSE_BOUNDARY_RE = re.compile(
     r"(?<=[.!?,])\s+"          # 마침표/느낌표/물음표/쉼표 뒤

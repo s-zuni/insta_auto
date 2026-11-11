@@ -51,7 +51,7 @@ _STOPWORDS = {
 }
 
 
-def extract_video_search_query(visual_prompt: str, fallback: str = "korean woman cafe") -> str:
+def extract_video_search_query(visual_prompt: str, fallback: str = "dark aesthetic night moon candle moody") -> str:
     """
     긴 AI 이미지 프롬프트에서 Pexels/Pixabay 검색에 적합한 핵심 키워드 3~4개를 추출합니다.
     """
@@ -66,7 +66,7 @@ def extract_video_search_query(visual_prompt: str, fallback: str = "korean woman
 
 def fetch_pexels_video(prompt: str, output_path: Path, min_duration: int = 3) -> bool:
     """
-    Pexels Video API (100% 무료)를 사용해 씬 프롬프트 분위기에 맞는 16:9 HD 영상을 다운로드합니다.
+    Pexels Video API (100% 무료)를 사용해 씬 프롬프트 분위기에 맞는 세로(portrait) HD 영상을 다운로드합니다.
     환경변수: PEXELS_API_KEY (https://www.pexels.com/api/ 에서 무료 발급)
     """
     api_key = os.getenv("PEXELS_API_KEY", "").strip()
@@ -89,9 +89,9 @@ def fetch_pexels_video(prompt: str, output_path: Path, min_duration: int = 3) ->
             return False
         data = resp.json()
         videos = data.get("videos") or []
-        if not videos and query != "korean cafe lifestyle":
-            # 검색 결과가 없으면 범용 감성 키워드로 재검색
-            params["query"] = "korean cafe lifestyle"
+        if not videos and query != "dark aesthetic night candle":
+            # 검색 결과가 없으면 다크 미스틱 감성 키워드로 재검색
+            params["query"] = "dark aesthetic night candle"
             resp = requests.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=20)
             videos = (resp.json().get("videos") or []) if resp.status_code == 200 else []
 
