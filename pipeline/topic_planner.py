@@ -144,11 +144,12 @@ SAJU_FORMATS: List[Tuple[str, str]] = [
 ]
 
 # 콘텐츠 필라(기둥). 가중치 = 제작 비율.
-# mbtiju 3대 하이브리드 축(초타겟팅 40% : 사주 심층 융합 30% : 시의성 랭킹 30%) 중심 편성
+# mbtiju 하이브리드 축(초타겟팅 30% : 사주 심층 융합 23% : 시의성 랭킹 23% : 현실 고민 상담 18%) 중심 편성
 PILLAR_WEIGHTS = {
-    "pillar_target_zodiac": 38,  # [Track A - 초타겟팅 핀셋형 40%] 출생연도/띠 + MBTI + 2030 현실 고민
-    "pillar_deep_saju": 28,       # [Track B - 사주 심층 융합형 30%] 출생연도 + 일간 + MBTI + 미래 예측
-    "pillar_season_rank": 28,     # [Track C - 시의성 랭킹/총운형 30%] 하반기/병오년 대박 사주xMBTI 조합 TOP 3
+    "pillar_target_zodiac": 30,   # [Track A - 초타겟팅 핀셋형 30%] 출생연도/띠 + MBTI + 2030 현실 고민 (기존 38% -> 30%, -8%)
+    "pillar_deep_saju": 23,       # [Track B - 사주 심층 융합형 23%] 출생연도 + 일간 + MBTI + 미래 예측 (기존 28% -> 23%, -5%)
+    "pillar_season_rank": 23,     # [Track C - 시의성 랭킹/총운형 23%] 하반기/병오년 대박 사주xMBTI 조합 TOP 3 (기존 28% -> 23%, -5%)
+    "pillar_concern_consult": 18, # [신규 - 구체적 현실 고민 상담형 18%] 재회/이별/썸/연락/이직·퇴사 고민 집중 처방
     "identity": 2,                # [사주 코어형] 일간+성별 특징
     "relation": 2,                # [사주 코어형] 관계 속 나
     "habit": 1,                   # [사주 코어형] 일상 습관
@@ -221,9 +222,10 @@ MBTI_FORMATS: List[Tuple[str, str]] = [
 
 # 필라별 LLM 지시 (사주 지식으로만 구성, 서비스 홍보는 CTA가 따로 담당)
 PILLAR_GUIDE = {
-    "pillar_target_zodiac": "[mbtiju Track A - 초타겟팅 핀셋형 40%] 출생연도(예: 00년생) + 띠(예: 용띠) + MBTI를 직격 호명하여 시청자 0.5초 스크롤 정지. 씬 2~3에서 MBTI 현실 행동/고민 묘사 -> 씬 4~5에서 띠와 사주 기운의 근본 원인 해부 -> 씬 6~7에서 미래 운세 예측 및 개운 솔루션 제공.",
-    "pillar_deep_saju": "[mbtiju Track B - 사주 심층 융합형 30%] 출생연도(예: 98년생) + 사주 일간(예: 임수) + MBTI를 융합하여 mbtiju의 전문성 부각. MBTI로 드러나는 겉성향 뒤에 숨겨진 사주 일간의 오행 에너지를 심층 분석하고, 올해/내년 구체적인 운의 흐름 예측과 맞춤 처방 제공.",
-    "pillar_season_rank": "[mbtiju Track C - 시의성 랭킹/총운형 30%] 특정 연도에 한정되지 않고 대중 전체의 호기심을 폭발시키는 시의성(올해 하반기/2026 병오년/앞으로 3년) 사주xMBTI 랭킹 TOP 3. 순차적으로 3위 -> 2위 -> 1위를 공개하며 높은 완독률과 바이럴 확산 달성.",
+    "pillar_target_zodiac": "[mbtiju Track A - 초타겟팅 핀셋형 30%] 출생연도(예: 00년생) + 띠(예: 용띠) + MBTI를 직격 호명하여 시청자 0.5초 스크롤 정지. 씬 2~3에서 MBTI 현실 행동/고민 묘사 -> 씬 4~5에서 띠와 사주 기운의 근본 원인 해부 -> 씬 6~7에서 미래 운세 예측 및 개운 솔루션 제공.",
+    "pillar_deep_saju": "[mbtiju Track B - 사주 심층 융합형 23%] 출생연도(예: 98년생) + 사주 일간(예: 임수) + MBTI를 융합하여 mbtiju의 전문성 부각. MBTI로 드러나는 겉성향 뒤에 숨겨진 사주 일간의 오행 에너지를 심층 분석하고, 올해/내년 구체적인 운의 흐름 예측과 맞춤 처방 제공.",
+    "pillar_season_rank": "[mbtiju Track C - 시의성 랭킹/총운형 23%] 특정 연도에 한정되지 않고 대중 전체의 호기심을 폭발시키는 시의성(올해 하반기/2026 병오년/앞으로 3년) 사주xMBTI 랭킹 TOP 3. 순차적으로 3위 -> 2위 -> 1위를 공개하며 높은 완독률과 바이럴 확산 달성.",
+    "pillar_concern_consult": "[구체적 현실 고민 상담형 18%] 재회, 이별, 썸, 연락, 이직/퇴사 등 구체적인 1가지 현실 고민에서 출발. 첫 3초는 사주 전문 용어나 가짜 고객 후기 없이 누구나 겪는 가상 고민 상황('재회 연락 기다리는 사람이 이번 달 조심할 것', '이직 타이밍 고민될 때')으로 직격 후킹. 중반 씬 4~6에서 사주 일간/십성 기질로 원인을 해부하고, 지금 조심해야 할 행동 처방 제시. 실제 고객 사연·후기 형태는 절대 금지하고 가상 상황·질문 형식으로만 전개.",
     "viral_checklist": "[100만 대중 확장 - 체크리스트형] 첫 3초는 어려운 사주 용어 없이 누구나 즉시 손가락 접으며 세어볼 수 있는 일상 행동 4~5가지 체크리스트('5개 중 3개 이상 맞으면...')로 시작하고, 중반에 이게 사주 신살/일간 특징임을 밝혀 저장과 친구 공유를 폭발시킨다.",
     "viral_fakeout": "[100만 대중 확장 - 페이크아웃 반전형] 첫 3초에서 사람들의 흔한 통념을 정면 반박('연락 안 한다고 관심 없는 게 아닙니다' / '다 퍼주는 사람이 손절할 땐 제일 무섭습니다')해 호기심을 극대화한 뒤, 사주 오행/십성 근거로 속마음을 해부한다.",
     "viral_pov": "[100만 대중 확장 - 일상/카톡 POV형] 첫 3초를 누구나 겪어본 생생한 장면(카톡 읽씹, 퇴근길 지하철, 새벽 감성)으로 열어 100% 공감을 얻은 뒤, 왜 그런 행동을 하는지 사주 일간과 MBTI 심리로 명쾌하게 풀어준다.",
@@ -277,6 +279,7 @@ _PILLAR_MARKERS = {
     "pillar_target_zodiac": lambda t: any(y in t for y in BIRTH_YEARS) or any(z in t for z in YEAR_ZODIAC_MAP.values()),
     "pillar_deep_saju": lambda t: any(dm in t for dm in DAY_MASTERS) and any(m in t for m in MBTI_TYPES),
     "pillar_season_rank": lambda t: "TOP" in t.upper() or "조합" in t or "남은 기간" in t or "병오년" in t,
+    "pillar_concern_consult": lambda t: any(w in t for w in ("재회", "이별", "썸", "연락", "짝사랑", "고민", "퇴사", "어떡해", "속마음", "미련")),
     "viral_checklist": lambda t: "3개" in t or "체크" in t or "해당" in t,
     "viral_fakeout": lambda t: "인 줄 알았는데" in t or "오해" in t or "칼같은" in t,
     "viral_pov": lambda t: "카톡" in t or "썸" in t or "속마음" in t,
@@ -416,6 +419,26 @@ def _seed_spec(kind: str, recent: List[str], exclude_dm: str = "", pillar: str =
             mbti=mbti,
             pattern=pat,
             detail=f"포맷: [Track C] 시의성 랭킹 & 총운 | 시점: {season_time} | 테마: {goal} | 사주 조합: {dm} 및 주요 오행 융합",
+        )
+    elif pillar == "pillar_concern_consult":
+        concern_topics = [
+            ("재회", "재회 연락 기다리는 사람이 이번 달 조심할 것"),
+            ("재회", "헤어진 사람한테 먼저 연락하면 안 되는 타이밍"),
+            ("썸", "썸 타는데 갑자기 연락 뜸해진 사람의 진짜 속마음"),
+            ("썸", "이 타이밍에 고백하면 100% 엇갈리는 썸의 신호"),
+            ("이별", "헤어지고 나서 미련 남았을 때 조심할 행동"),
+            ("짝사랑", "짝사랑 포기해야 할지 계속 가야 할지 헷갈릴 때"),
+            ("이직", "이직이나 퇴사 고민될 때 사주 흐름에서 꼭 볼 것"),
+            ("연락", "연락 늦는 그 사람, 기다려야 할까 먼저 물어봐야 할까"),
+            ("속마음", "겉은 괜찮다는데 속마음은 이미 정리 중인 신호"),
+            ("결혼", "결혼 고민 앞두고 타이밍 엇갈리는 사람들의 특징"),
+        ]
+        tag, pat = random.choice(concern_topics)
+        base.update(
+            series="SAJU",
+            mbti="",
+            pattern=pat,
+            detail=f"포맷: [구체적 고민 상담형] 주제: {tag} 고민 | 훅: 일상 구체 가상 상황(가짜 후기 금지) | 사주 근거: {dm} {gender} 기운과 {detail['ss']} 심리 풀이 | 처방: 지금 조심할 행동 2가지",
         )
     elif pillar == "viral_checklist":
         # 훅/제목에는 사주 용어를 쓰지 않는다(hook_guard). 신살/일간은 detail에 두고 중반 씬에서 푼다.
@@ -622,6 +645,7 @@ def get_planned_reels_proposals() -> Dict[str, Any]:
 1. 초타겟팅 핀셋형: 출생연도/띠 + MBTI를 호명하여 '00년생 용띠 ESFJ 특징'처럼 직격 공감 유도.
 2. 사주 심층 융합형: 출생연도 + 사주 일간 + MBTI를 융합하여 '98년생 임수 + INFP의 결혼운'처럼 겉성향 뒤 사주 기운 해부.
 3. 시의성 랭킹형: '올해 남은 기간 제일 운 좋은 MBTI&사주 조합 TOP 3'처럼 바이럴 확산 극대화.
+4. 구체적 고민 상담형: '재회 연락 기다리는 사람이 이번 달 조심할 것', '이직/퇴사 고민' 등 1가지 구체적 고민에 집중 처방 (가상 상황·질문형 전개, 실제 고객 후기 형태 금지).
 
 전개 구조(3단 입체 진단):
 - (1) MBTI 겉행동 및 일상 고민 묘사 (공감 200%)

@@ -69,6 +69,18 @@ what was promised. If the user has automation set up through Instagram's own
 tools or an approved partner, say so and let it run; if not, the replies are
 manual and that is fine at this volume. Never bulk-DM people who did not
 comment.
+*(Note for @mbti_ju: The repository does NOT include an automated comment reply or DM bot. Do not promise "댓글 남기면 링크 전송/안내" in post captions; use polite guidance like "댓글에 [상담] 남겨주세요" and handle replies manually.)*
+
+### @mbti_ju Keyword & Lead Routing
+- **`[상담]` or specific concern comments (reunion, breakup, dating, career change)**:
+  - Guide to: Profile link → KakaoTalk 1:1 Consultation Channel (`https://pf.kakao.com/_xcdXJX/chat`).
+  - Facts: 1 question 9,900 KRW, 3 questions 19,900 KRW. Form in chat → bank transfer → answered within 24 hours on weekdays.
+  - Phrasing: "AI 분석을 바탕으로 운세 서비스 전문가가 직접 검수".
+  - Never promise real-time/reservation response.
+- **`[사주]`/`[분석]` or general flow comments**:
+  - Guide to: Profile link → 3-Year In-depth Saju Report (`https://mbtiju.com/premium`) or 30-second free test (`https://mbtiju.com`).
+- **`[궁합]` comments**:
+  - Guide to: Profile link → Couple compatibility or partner inclusion option in 3-year report.
 
 ## Output
 

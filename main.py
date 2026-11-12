@@ -41,7 +41,7 @@ from pipeline.script_gen import generate_script, create_sample_script, ReelsScri
 from pipeline.mbti_saju_content import generate_mbti_saju_script
 from pipeline.text_utils import sanitize_narration, sanitize_title
 from pipeline.tts_engine import generate_speech, FullAudioResult, LAST_TTS_INFO
-from pipeline.cta import has_share_line, infer_cta_kind
+from pipeline.cta import has_share_line, infer_cta_kind, detect_cta_kind, adapt_caption_for_youtube
 from pipeline.visual_gen import generate_scene_images
 from pipeline.composer import compose_reels_video
 from pipeline.gdrive_uploader import upload_reels_assets_to_drive
@@ -121,7 +121,7 @@ def run_pipeline(
     variant = {
         "scenes": n_scenes, "scene_bucket": "<=6" if n_scenes <= 6 else ("7-8" if n_scenes <= 8 else "9+"),
         "avg_chars_per_scene": avg_chars, "share_cta": has_share_line(script.scenes),
-        "cta_kind": infer_cta_kind(series, topic or script.title),
+        "cta_kind": detect_cta_kind(script.scenes, default=infer_cta_kind(series, topic or script.title)),
     }
     variant.update(classify_hook(script.hook or script.title))  # 훅 공식/용어 유무/길이 기록(ig-audit 비교용)
 
@@ -259,7 +259,7 @@ def run_pipeline(
                 youtube_result = upload_shorts_to_youtube(
                     video_path=final_video,
                     title=script.title,
-                    description=script.instagram_caption,
+                    description=adapt_caption_for_youtube(script.instagram_caption),
                     scheduled_time_kst=youtube_schedule_kst
                 )
                 print(f"  ✅ YouTube Shorts 업로드 완료 ({time.time() - t0:.1f}초)")
@@ -368,7 +368,7 @@ def run_carousel_pipeline(
                         insta_result["id"], "carousel", series=series, mbti=mbti if series == "MBTI" else "",
                         topic=topic, title=script.title, hook=script.slides[0].headline,
                         trend_hint=trend_hint, permalink=insta_result.get("link", ""),
-                        variant={"slides": len(script.slides), "share_cta": True},
+                        variant={"slides": len(script.slides), "share_cta": True, "cta_kind": infer_cta_kind(series, topic or script.title)},
                     )
             except Exception as e:
                 insta_result = {"error": str(e)}

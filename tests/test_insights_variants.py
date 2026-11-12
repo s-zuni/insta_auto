@@ -83,6 +83,16 @@ class VariantRecordingTest(unittest.TestCase):
         self._score("z", 3.0)
         self.assertNotIn("A/B", insights.weekly_report())
 
+    def test_weekly_report_includes_cta_kind_ab_block(self):
+        for mid, kind, score in (("c1", "consult", 8.5), ("c2", "consult", 7.5), ("r1", "report3y", 5.0)):
+            insights.record_post(mid, "reel", series="SAJU", title="제목", variant={"cta_kind": kind})
+            self._score(mid, score)
+        report = insights.weekly_report()
+        self.assertIn("A/B", report)
+        self.assertIn("CTA 종류", report)
+        self.assertIn("consult", report)
+        self.assertIn("report3y", report)
+
 
 if __name__ == "__main__":
     unittest.main()

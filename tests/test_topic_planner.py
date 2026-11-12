@@ -9,10 +9,32 @@ class SeedSpecTest(unittest.TestCase):
     def setUp(self):
         random.seed(1234)
 
+    def test_pillar_weights_sum_to_100_and_concern_weight(self):
+        self.assertEqual(sum(tp.PILLAR_WEIGHTS.values()), 100)
+        self.assertIn("pillar_concern_consult", tp.PILLAR_WEIGHTS)
+        w = tp.PILLAR_WEIGHTS["pillar_concern_consult"]
+        self.assertGreaterEqual(w, 15)
+        self.assertLessEqual(w, 20)
+
     def test_all_pillars_have_guide_and_marker(self):
         for pillar in tp.PILLAR_WEIGHTS:
             self.assertIn(pillar, tp.PILLAR_GUIDE)
             self.assertIn(pillar, tp._PILLAR_MARKERS)
+
+    def test_concern_consult_pillar_seeds_and_cta_mapping(self):
+        from pipeline import cta, hook_guard
+        for _ in range(20):
+            seed = tp._seed_spec("SAJU", [], pillar="pillar_concern_consult")
+            pat = seed["pattern"]
+            self.assertTrue(pat)
+            # 사주 전문 용어 금지
+            self.assertEqual(hook_guard.find_jargon(pat), [])
+            # 가짜 후기/고객 사연 형태 금지
+            self.assertNotIn("후기", pat)
+            self.assertNotIn("고객", pat)
+            self.assertNotIn("상담 후기", pat)
+            # cta.infer_cta_kind에 넘겼을 때 consult로 판별되는지 검증
+            self.assertEqual(cta.infer_cta_kind(seed["series"], pat), "consult")
 
     def test_every_pillar_produces_a_filled_pattern(self):
         for pillar in tp.PILLAR_WEIGHTS:

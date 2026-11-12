@@ -263,7 +263,7 @@ def weekly_report(days: int = 7) -> str:
     for s, v in sorted(by_series.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])):
         out.append(f"• {s}: {sum(v) / len(v):.2f} ({len(v)}개)")
     ab_lines = []
-    for key, label in (("share_cta", "공유 CTA"), ("scene_bucket", "씬 수"), ("tts_rate", "TTS 속도")):
+    for key, label in (("share_cta", "공유 CTA"), ("cta_kind", "CTA 종류"), ("scene_bucket", "씬 수"), ("tts_rate", "TTS 속도")):
         summ = variant_summary(key, rows, fmt="reel")
         if len(summ) > 1:  # 비교할 변형이 2개 이상일 때만
             ab_lines.append(f"• {label}: " + " / ".join(f"{k} {v['avg_score']:.2f} (n={v['n']})" for k, v in sorted(summ.items())))

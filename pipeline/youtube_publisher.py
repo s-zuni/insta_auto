@@ -152,9 +152,10 @@ def upload_shorts_to_youtube(
         if len(shorts_title) > 100:
             shorts_title = shorts_title[:90] + " #Shorts"
 
-        shorts_desc = description
+        from pipeline.cta import adapt_caption_for_youtube
+        shorts_desc = adapt_caption_for_youtube(description)
         if "#Shorts" not in shorts_desc:
-            shorts_desc = f"{description}\n\n#Shorts #MBTI #사주 #운세"
+            shorts_desc = f"{shorts_desc}\n\n#Shorts #MBTI #사주 #운세"
 
         if not tags:
             tags = ["Shorts", "MBTI", "사주", "운세", "병오년"]

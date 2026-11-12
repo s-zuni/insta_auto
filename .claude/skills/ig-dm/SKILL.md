@@ -68,6 +68,21 @@ Automated keyword replies are a supported feature for professional accounts,
 through Instagram's own tools or an approved partner. Using that is fine.
 Sending unsolicited bulk DMs is not, and it is the fastest route to a
 restricted account.
+*(Note for @mbti_ju: The repository currently has no automated DM bot running; keyword deliveries and DMs are handled manually by the operator or via Meta's native tools. Never promise automated DM delivery in captions.)*
+
+### Service Product Reference for DMs (@mbti_ju)
+- **1:1 Consultation (`[상담]` keyword or personal concern lead)**:
+  - Destination: KakaoTalk Channel (`https://pf.kakao.com/_xcdXJX/chat`)
+  - Pricing: Single concern consultation 9,900 KRW (1 question) / 3-question consultation 19,900 KRW
+  - Process: Submit form in channel chat → bank transfer → answer delivered via chat within 24 hours on weekdays
+  - Response phrasing: "AI 분석을 바탕으로 운세 서비스 전문가가 직접 검수" (strictly use this wording)
+  - Terms: 24h intake available, no registration needed, 100% refund before answer is dispatched.
+  - Prohibitions: DO NOT mention real-time or reservation consultations (in preparation). Never promise response faster than 24 hours on weekdays.
+- **3-Year In-depth Saju Report (`[사주]`/`[분석]` keywords)**:
+  - Destination: `https://mbtiju.com/premium`
+  - Free scorecards (wealth, career, relationship, health) available before purchase. MBTI fusion available.
+- **Couple Compatibility (`[궁합]` keyword)**:
+  - Destination: `https://mbtiju.com` (Credit service & partner info option in 3-year report)
 
 ## The first message to someone warm
 
