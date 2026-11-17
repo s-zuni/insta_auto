@@ -1,0 +1,54 @@
+name: PR Check & Slack
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+        env: { NEXT_PUBLIC_APP_MODE: demo }
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: apps/agent/requirements.txt }
+      - run: pip install -r apps/agent/requirements.txt
+      - run: ruff check apps/agent
+      - run: pytest -q
+
+  notify:
+    needs: [web, agent]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack 알림
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          OK: ${{ needs.web.result == 'success' && needs.agent.result == 'success' }}
+          WEB: ${{ needs.web.result }}
+          AGENT: ${{ needs.agent.result }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then echo "SLACK_WEBHOOK_URL 미설정 — 알림 건너뜀"; exit 0; fi
+          if [ "$OK" = "true" ]; then ICON="✅ PASS"; else ICON="❌ FAIL"; fi
+          jq -n --arg t "*[insta_auto] PR 검증 $ICON*\n<$PR_URL|$PR_TITLE> by $PR_AUTHOR\n• web: $WEB / agent: $AGENT" \
+            '{text: $t}' | curl -sS -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"

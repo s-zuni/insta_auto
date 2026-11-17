@@ -1,51 +1,72 @@
-# CLAUDE.md
+# CLAUDE.md — insta_auto 프로젝트 헌법
 
-MBTI×사주 인스타그램 릴스/유튜브 숏츠 자동 생성 파이프라인. 설치/실행 방법은 `README.md`,
-텔레그램 봇 아키텍처 히스토리는 `AUTOMATION_PLAN.md` 참고.
+소상공인·1인 사업가용 **올인원 AI 마케팅 자동화 하이브리드 패키지**.
+사용자가 *주제 × 스타일*을 고르면 AI가 **숏폼 MP4 + 쓰레드 체인 + 네이버 블로그 원고**를 동시에 만들고,
+검수 후 **인스타 릴스 · 유튜브 쇼츠 · 쓰레드 · 네이버 블로그**에 원클릭 발행한다.
 
-## 이 저장소에서 작업할 때 반드시 먼저 로드할 스킬
-
-**릴스 영상의 레이아웃/폰트/자막/전환/크롤링 중 하나라도 건드리는 작업이면, 코드를 보기 전에
-`.claude/skills/reels-composer/SKILL.md`를 먼저 읽으세요.** 그 문서가 이 프로젝트의 디자인 스펙
-(캔버스 치수, 색상, 폰트 규칙, 자막 줄바꿈 로직, 트랜지션 파라미터, 운세 크롤링 도메인 목록)의
-단일 소스입니다. 여기서 새로 추측하거나 재설계하지 마세요.
-
-## 파이프라인 한눈에 보기
-
+## 1. 아키텍처 한눈에
 ```
-main.py run_pipeline()
-  1. script_gen.py / mbti_saju_content.py  → LLM 대본(JSON, ReelsScript; Gemini 무료 티어 우선, 실패 시 OpenAI gpt-4o-mini 폴백 — script_gen.generate_json)
-  2. text_utils.sanitize_narration()        → 나레이션 한자 제거 (TTS 중복 발음 방지)
-  3. tts_engine.py                          → TTS 음성 + 씬별 word_timings
-  4. visual_gen.py                          → 16:9 이미지 생성 + compose_reels_frame()으로
-                                               1080x1920 릴스 프레임(상단 고정 제목 헤더 +
-                                               중앙 16:9 비주얼) 합성
-  5. composer.py                            → Ken Burns + 씬간 디졸브 전환 + ASS 자막 하드번인
-  6. gdrive_uploader / insta_publisher / youtube_publisher → 배포
+apps/web   (Next.js 14, TS, Tailwind)  ──HTTP──▶  apps/agent (FastAPI, Python 3.11+)
+  demo 모드: agentClient.ts 의 Mock          local 모드: 고객 PC 에서 generators/media/publishers 실행
 ```
+- **demo** (`NEXT_PUBLIC_APP_MODE=demo`): Vercel 배포, 목 데이터, 실제 업로드 없음.
+- **local** (`NEXT_PUBLIC_APP_MODE=local`): `scripts/start_local.*` 로 Agent(8787) + Web(3000) 동시 기동. 고객 IP·크롬 세션·FFmpeg 사용.
+- 플로우: `POST /api/generate` → 3종 콘텐츠 → 3분할 에디터에서 수정 → `POST /api/publish` (채널별 독립 실행).
+- `_legacy_archive/` 는 폐기된 사주/MBTI 봇 코드. **읽기 전용 참고용, 수정·import 금지.**
 
-텔레그램 봇(`telegram_bot.py`)은 `pipeline/topic_planner.py`(크롤링 없음, 일간+성별 타겟 승자 공식 기반)로
-기획안 2개를 만들고, 버튼 클릭 시 위 파이프라인을 그대로 호출합니다.
+## 2. 팀 소유권 (3인 / 8주)
+| 담당 | 영역 | 디렉토리 |
+|---|---|---|
+| **A** Web/DB/Vercel | 프론트, 3분할 에디터, Supabase 라이선스/DB | `apps/web/**` |
+| **B** AI/Media | 프롬프트 매트릭스, TTS, 자막, FFmpeg 렌더링 | `apps/agent/generators/**`, `apps/agent/media/**`, `apps/agent/assets/**` |
+| **C** Publisher/Harness | 4대 채널 업로더, 하네스·Notion·Slack | `apps/agent/publishers/**`, `.claude/**`, `.github/**`, `scripts/**` |
+| 공동 | 계약·설정 | `apps/agent/core/**`, `apps/web/src/lib/types.ts`, `CLAUDE.md` |
 
-## 절대 어기면 안 되는 규칙 (이번 세션에서 확정된 결정)
+내 영역 밖을 고쳐야 하면 PR 설명에 이유를 적고 해당 담당을 리뷰어로 지정한다.
 
-- **나레이션에 한자 금지.** `narration` 필드는 TTS로 읽히므로 한자가 섞이면 한글+한자가 중복
-  발음됩니다(예: "토(土)" → "토토"). 프롬프트 지시(`script_gen.py`, `mbti_saju_content.py`)와
-  `text_utils.sanitize_narration()` 2중 방어가 이미 걸려 있으니, 새 series/프롬프트를 추가할 때도
-  이 규칙을 유지하세요. 제목(title)은 화면에만 표시되고 읽히지 않으므로 한자 표기가 남아 있어도 무방.
-- **크롤링 금지.** 외부 뉴스/타사 상품 크롤링은 제거됨(타사 상품이 주제로 섞여 들어오는 문제). 기획은 `topic_planner.py`의
-  승자 공식("을목 여자 특징? 이거 모르면" = 일간+성별 정체성 타겟 + 결론 숨김)으로만 만든다. 크롤러를 되살리지 마세요.
-- **이미지는 실사(스마트폰 스냅) 스타일.** `visual_gen.REALISM_SUFFIX` 사용. glowing/mystical/일러스트 계열로 되돌리지 마세요.
-- **자막은 문장부호 기준 절 단위 + 실측 픽셀 폭 래핑.** 단어 개수로 대충 반으로 자르는 방식(예전
-  구현)으로 되돌리지 마세요. `composer.py`의 `build_caption_chunks`(`text_utils.py`)가 이를 담당.
-- **레이아웃 변경은 `compose_reels_frame()` 하나만 수정.** 카드형 박스(둥근 사각형 배경)는 사용자가
-  "구려 보인다"고 명시적으로 거부한 디자인입니다. 재도입하지 마세요.
+## 3. 계약 동기화 규칙 (가장 중요)
+- Web ↔ Agent 입출력은 `apps/agent/core/schemas.py` (Pydantic) 와 `apps/web/src/lib/types.ts` 가 **1:1** 이다.
+- 한쪽을 바꾸면 **같은 PR** 에서 반대쪽 + `tests/test_api_contract.py` + `agentClient.ts` 의 Mock 까지 고친다.
+- 스타일 id(`info|story|review|promo|empathy`)는 `matrix_prompt.py: STYLE_MATRIX` 와 `lib/presets.ts: STYLES` 에서 동일해야 한다.
 
-## 테스트 팁
+## 4. 명령어
+```bash
+# Agent (저장소 루트)
+python -m venv apps/agent/.venv && apps/agent/.venv/Scripts/pip install -r apps/agent/requirements.txt
+apps/agent/.venv/Scripts/python -m pytest -q
+apps/agent/.venv/Scripts/python -m uvicorn apps.agent.main:app --port 8787 --reload
+# Web
+cd apps/web && npm install && npm run dev        # typecheck / lint / build 도 있음
+# 로컬 패키지 통합 실행
+scripts\start_local.bat        # macOS: ./scripts/start_local.sh
+```
+(macOS/Linux 는 `.venv/Scripts` → `.venv/bin`)
 
-- LLM/TTS/이미지 생성을 다시 호출하지 않고 합성 로직만 빠르게 반복 검증하려면
-  `assets/audio/timing_info.json`과 `assets/images/scene_*.jpg`가 이미 있는 상태에서
-  `pipeline.composer.compose_reels_video()`를 직접 호출하세요 (스크립트/TTS/이미지 재생성 생략).
-- `--mock-images`는 단색 그라디언트 플레이스홀더를 만듭니다. 실제 비주얼 품질을 판단할 때는
-  반드시 `--mock-images` 없이 돌린 결과로 확인하세요 — 목업 결과만 보고 "화질이 별로다"라고
-  판단하면 잘못된 진단입니다.
+## 5. 개발 원칙
+1. **안전한 기본값**: 발행은 `dry_run=true` 가 기본. 실제 발행은 사람이 UI에서 확인 후 직접. Claude/CI/테스트가 `dry_run=false` 를 호출하지 않는다.
+2. **키 없이도 동작**: `ANTHROPIC_API_KEY` 등이 없으면 Mock/Dry-run 으로 폴백한다. 테스트는 외부 네트워크·실계정 없이 통과해야 한다.
+3. **채널 독립성**: 한 채널 실패가 다른 채널을 막지 않는다. 실패는 예외 대신 `PublishResult(status="failed", message=한국어 사유)` 로 반환.
+4. **영상 실패 ≠ 전체 실패**: 렌더링 오류는 `warnings` 로 알리고 텍스트 콘텐츠는 반환한다.
+5. **셀렉터는 한 곳에**: Playwright 셀렉터는 `naver_blog.SELECTORS` 에만 둔다.
+6. 타입 힌트 필수(Python/TS strict), 새 로직엔 테스트 추가, 주석·UI 문구는 한국어.
+
+## 6. 보안 / 금지 사항
+- `.env`, `*.key`, `apps/agent/.browser_profile/`, `*.mp4`, `apps/agent/output/` 는 **커밋 금지** (훅이 차단).
+- 라이선스 **비밀키**는 판매자 PC 에만. 고객 배포본에는 **공개키만**. `SUPABASE_SERVICE_ROLE_KEY` 도 고객 배포본 금지.
+- 로그/에러/PR 에 토큰·쿠키·고객 상호를 출력하지 않는다.
+- 플랫폼 약관·허위/과장 광고: 생성 프롬프트는 효능 단정·허위 후기를 만들지 않는다.
+
+## 7. Git / PR 규칙
+- 브랜치: `feat/<A|B|C>-<설명>`, `fix/...`. `main` 직접 push 금지, force push 금지.
+- 커밋: `feat:`, `fix:`, `chore:`, `docs:` 접두어. PR 전 **`harness-verify` 스킬** 실행 → CI(`pr-check-and-slack.yml`)가 Slack 으로 결과 알림.
+
+## 8. 스킬 (`.claude/skills/`)
+| 스킬 | 언제 |
+|---|---|
+| `notion-spec-sync` | Notion PRD/티켓 → 스키마·타입 동기화 |
+| `prompt-tuner` | 한국어 원고 품질 채점·프롬프트 튜닝 |
+| `publisher-tester` | 업로더 Dry-run, 네이버 셀렉터 점검 |
+| `harness-verify` | PR 전 검증 + Slack 브리핑 생성 |
+
+## 9. 한국어 원고 기준 (생성 프롬프트 공통)
+번역투(`~에 대해/~를 통해/~것이 가능`) 금지 · 한 문장 40자 안팎 · 첫 문장이 훅 · 채널별 톤(숏폼=또렷, 쓰레드=반말·친근·이모지 거의 없음, 블로그=정보형·소제목 3~4개).
