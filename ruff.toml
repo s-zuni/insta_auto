@@ -1,0 +1,7 @@
+line-length = 120
+target-version = "py311"
+extend-exclude = ["_legacy_archive", "apps/web", "apps/agent/.venv"]
+
+[lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
