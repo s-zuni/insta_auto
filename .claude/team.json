@@ -1,0 +1,86 @@
+{
+  "_comment": "/start 스킬이 읽는 팀 설정. 1차 배정(킥오프에서 변경 가능). 바꾸면 CLAUDE.md §2 도 같이 수정. 토큰/웹훅 URL 은 절대 여기에 넣지 마세요.",
+  "members": {
+    "A": {
+      "name": "박영준",
+      "role": "Web·발행 코드",
+      "dirs": [
+        "apps/web/",
+        "apps/agent/publishers/"
+      ],
+      "git_authors": [
+        "TODO(첫 커밋 후 git log 이름으로 채우기)"
+      ],
+      "slack_user_id": "U0BRPN4MQ5D",
+      "notion_assignee": "A"
+    },
+    "B": {
+      "name": "이세림",
+      "role": "AI·영상",
+      "dirs": [
+        "apps/agent/generators/",
+        "apps/agent/media/",
+        "apps/agent/assets/"
+      ],
+      "git_authors": [
+        "TODO(첫 커밋 후 git log 이름으로 채우기)"
+      ],
+      "slack_user_id": "U0BS463C1C6",
+      "notion_assignee": "B"
+    },
+    "C": {
+      "name": "이승준",
+      "role": "인프라·하네스·리뷰 (Vercel/Supabase/키 발급)",
+      "dirs": [
+        ".claude/",
+        ".github/",
+        "scripts/"
+      ],
+      "git_authors": [
+        "s-zuni"
+      ],
+      "slack_user_id": "U0BS53K7P8S",
+      "notion_assignee": "C"
+    }
+  },
+  "slack": {
+    "mode": "dm",
+    "personal_dm": true,
+    "team_summary": {
+      "type": "group_dm",
+      "label": "팀 단체방",
+      "channel_id": "C0C81PFCLMD",
+      "members": [
+        "U0BS53K7P8S",
+        "U0BRPN4MQ5D",
+        "U0BS463C1C6"
+      ],
+      "ignore_members": [
+        "U0BS8RA1X8U"
+      ]
+    }
+  },
+  "notion": {
+    "project_page_url": "https://app.notion.com/p/41bc10a6e241813f9826f048fc57b44d",
+    "tasks_database_url": "https://app.notion.com/p/41bc10a6e24181d2be61e6596a7a7a8a",
+    "tasks_data_source": "collection://41bc10a6-e241-81ff-8862-000be8b8d0a0",
+    "milestones_data_source": "collection://41bc10a6-e241-8155-9b96-000bdf8fff61",
+    "log_data_source": "collection://41bc10a6-e241-8141-a767-000bd34ef142",
+    "fields": {
+      "title": "이름",
+      "assignee": "담당자 (select: A|B|C|공동)",
+      "status": "상태",
+      "due": "마감일"
+    },
+    "active_statuses": [
+      "오늘",
+      "진행 중",
+      "리뷰"
+    ]
+  },
+  "me": {
+    "name": "이승준",
+    "slack_user_id": "U0BS53K7P8S",
+    "role": "C"
+  }
+}

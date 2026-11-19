@@ -33,3 +33,6 @@ apps/agent/.venv/Scripts/python -m pytest apps/agent/tests -q      # Windows
 
 ## 보고 형식
 채널별 한 줄 표(`dry_run OK / 실패 사유 / 셀렉터 MISSING 목록`) + 다음 조치. 확인하지 못한 항목은 "미검증"이라고 명시한다.
+
+## 설명 방식
+팀원 대부분이 개발 초보다. 실패·경고는 **무엇이 / 왜 / 다음에 칠 명령어** 순서로 쉬운 말로 설명하고, 전문용어는 처음 한 번 괄호로 풀어 쓴다.
