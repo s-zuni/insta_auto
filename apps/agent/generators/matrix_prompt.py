@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from ..core import llm
+from ..core.copy_rules import prompt_rules
 from ..core.schemas import (
     BlogContent,
     GeneratedContent,
@@ -51,10 +52,8 @@ STYLE_MATRIX: dict[str, dict[str, str]] = {
     },
 }
 
-KOREAN_RULES = (
-    "한국어 품질 규칙: 번역투('~에 대해', '~것이 가능하다', '~를 통해') 금지, 피동 남발 금지, "
-    "한 문장 40자 안팎, 과장·허위·의학적 효능 단정 표현 금지, 이모지는 채널 규칙에 맞게만."
-)
+# 금지어 규칙은 core/copy_rules.py 한 곳에서 관리 (CLAUDE.md §9)
+KOREAN_RULES = prompt_rules()
 
 
 @dataclass

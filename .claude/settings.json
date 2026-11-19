@@ -13,7 +13,11 @@
       "Bash(python -m pytest:*)",
       "Bash(python -m ruff:*)",
       "Bash(python scripts/hooks/*)",
-      "Bash(ffmpeg -version:*)"
+      "Bash(ffmpeg -version:*)",
+      "Bash(git fetch:*)",
+      "mcp__claude_ai_Notion__notion-search",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "mcp__claude_ai_Notion__notion-query-data-sources"
     ],
     "deny": [
       "Read(./.env)",
@@ -32,7 +36,11 @@
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "python scripts/hooks/post_edit_check.py", "timeout": 60 }
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/post_edit_check.py\"",
+            "timeout": 60
+          }
         ]
       }
     ],
@@ -40,7 +48,11 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python scripts/hooks/guard_bash.py", "timeout": 10 }
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard_bash.py\"",
+            "timeout": 10
+          }
         ]
       }
     ]

@@ -32,6 +32,15 @@ def test_health_shape():
     assert set(body["configured_channels"]) == {"instagram", "youtube", "threads", "naver_blog"}
 
 
+def test_cors_allows_local_web():
+    """Web(localhost:3000) 브라우저가 Agent 를 호출할 수 있어야 한다."""
+    r = client.options("/api/generate", headers={
+        "Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST",
+    })
+    assert r.status_code == 200
+    assert r.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 def test_generate_returns_three_contents_in_mock():
     r = client.post("/api/generate", json=REQ)
     assert r.status_code == 200
