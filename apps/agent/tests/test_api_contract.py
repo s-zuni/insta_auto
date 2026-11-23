@@ -8,9 +8,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 
+from apps.agent import main as main_module
 from apps.agent.core import license as lic
 from apps.agent.core.config import settings
-from apps.agent import main as main_module
 from apps.agent.core.schemas import GeneratedContent, Scene
 from apps.agent.main import app
 
