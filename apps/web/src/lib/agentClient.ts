@@ -1,5 +1,5 @@
 import type {
-  AgentHealth, GenerateRequest, GenerateResponse, PublishRequest, PublishResponse,
+  AgentHealth, GenerateRequest, GenerateResponse, PublishRequest, PublishResponse, VideoStatusResponse,
 } from "./types";
 
 export const APP_MODE: "demo" | "local" =
@@ -19,6 +19,7 @@ function mockGenerate(req: GenerateRequest): GenerateResponse {
   return {
     job_id: `demo-${Date.now()}`,
     video_url: null,
+    video_status: "none",
     mock: true,
     warnings: ["데모 모드: 샘플 콘텐츠이며 영상 생성·실제 업로드는 로컬 패키지에서 동작합니다."],
     content: {
@@ -26,6 +27,7 @@ function mockGenerate(req: GenerateRequest): GenerateResponse {
         title: hook,
         scenes: [hook, ...points, "더 궁금하면 문의 주세요"].map((n, i) => ({
           narration: n, on_screen_text: i === 0 ? hook : `POINT ${i}`, image_prompt: "",
+          video_prompt: "", dialogue: "",
         })),
         caption: `${hook}\n저장 필수!`,
         hashtags: [req.business_type, "소상공인", "사장님꿀팁"],
@@ -71,6 +73,14 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
     return mockGenerate(req);
   }
   return http<GenerateResponse>("/api/generate", { method: "POST", body: JSON.stringify(req) });
+}
+
+/** 영상 진행 상태 폴링용. 데모 모드는 항상 영상 없음(none). */
+export async function getVideoStatus(jobId: string): Promise<VideoStatusResponse> {
+  if (APP_MODE === "demo") {
+    return { status: "none", message: "데모 모드 — 영상은 생성하지 않습니다.", video_url: null };
+  }
+  return http<VideoStatusResponse>(`/api/video/${encodeURIComponent(jobId)}/status`);
 }
 
 export async function publish(req: PublishRequest): Promise<PublishResponse> {

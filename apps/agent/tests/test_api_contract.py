@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from apps.agent.core import license as lic
 from apps.agent.core.config import settings
-from apps.agent.core.schemas import GeneratedContent
+from apps.agent import main as main_module
+from apps.agent.core.schemas import GeneratedContent, Scene
 from apps.agent.main import app
 
 
@@ -50,6 +51,47 @@ def test_generate_returns_three_contents_in_mock():
     assert len(body["content"]["shorts"]["scenes"]) >= 3
     assert all(len(p) <= 500 for p in body["content"]["threads"]["posts"])
     assert body["content"]["blog"]["body_markdown"]
+
+
+def test_scene_new_fields_are_backward_compatible():
+    """video_prompt/dialogue 가 없는 기존 페이로드도 그대로 통과해야 한다 (하위호환)."""
+    s = Scene.model_validate({"narration": "안녕하세요"})
+    assert s.video_prompt == "" and s.dialogue == ""
+
+
+def test_generate_without_video_reports_none():
+    body = client.post("/api/generate", json=REQ).json()
+    assert body["video_status"] == "none"
+    assert body["video_url"] is None
+    # 영상 요청이 없던 job 은 상태 조회 시 404
+    assert client.get(f"/api/video/{body['job_id']}/status").status_code == 404
+
+
+def test_video_status_ready(monkeypatch, tmp_path):
+    mp4 = tmp_path / "shorts.mp4"
+    mp4.write_bytes(b"x")
+
+    async def fake_render(shorts, job_dir):
+        return mp4, 30.0
+
+    monkeypatch.setattr(main_module.shorts_composer, "render", fake_render)
+    body = client.post("/api/generate", json={**REQ, "render_video": True}).json()
+    assert body["video_status"] == "ready" and body["video_url"]
+    st = client.get(f"/api/video/{body['job_id']}/status").json()
+    assert st == {"status": "ready", "message": "", "video_url": body["video_url"]}
+
+
+def test_video_status_failed_keeps_text(monkeypatch):
+    async def boom(shorts, job_dir):
+        raise RuntimeError("Flow 로그인이 필요해요")
+
+    monkeypatch.setattr(main_module.shorts_composer, "render", boom)
+    r = client.post("/api/generate", json={**REQ, "render_video": True})
+    assert r.status_code == 200  # 영상 실패해도 텍스트는 200
+    body = r.json()
+    assert body["video_status"] == "failed" and body["content"]["threads"]["posts"]
+    st = client.get(f"/api/video/{body['job_id']}/status").json()
+    assert st["status"] == "failed" and "Flow 로그인" in st["message"] and st["video_url"] is None
 
 
 def test_generate_rejects_bad_style():
