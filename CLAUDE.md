@@ -58,13 +58,18 @@ apps/web   (Next.js 14, TS, Tailwind)  ──HTTP JSON──▶  apps/agent (Fas
 // 200 — GenerateResponse
 { "job_id": "a1b2c3d4e5f6",
   "content": {
-    "shorts":  { "title": "", "scenes": [{ "narration": "", "on_screen_text": "", "image_prompt": "" }],
+    "shorts":  { "title": "", "scenes": [{ "narration": "", "on_screen_text": "", "image_prompt": "",
+                             "video_prompt": "", "dialogue": "" }],   // 뒤 2개: Flow 영상용(기본 "")
                  "caption": "", "hashtags": [""], "video_path": null, "duration_sec": null },
     "threads": { "posts": ["첫 글(500자 이내)", "이어쓰기…"] },
     "blog":    { "title": "", "body_markdown": "## 소제목…", "tags": [""], "meta_description": "" } },
   "video_url": "/api/video/{job_id} | null",
   "warnings": ["영상 생성 실패: …"],        // 영상 실패해도 텍스트는 200 으로 반환
-  "mock": false }                           // API 키 없으면 true
+  "mock": false,                            // API 키 없으면 true
+  "video_status": "none|pending|ready|failed" }   // 기본 none (영상 요청 안 함)
+
+// GET /api/video/{job_id}/status — VideoStatusResponse (웹이 폴링, 영상 요청 없던 job 은 404)
+{ "status": "none|pending|ready|failed", "message": "한국어 사유", "video_url": "/api/video/{job_id} | null" }
 
 // POST /api/publish  — PublishRequest
 { "job_id": "", "channels": ["instagram","youtube","threads","naver_blog"],   // 1개 이상
@@ -75,7 +80,7 @@ apps/web   (Next.js 14, TS, Tailwind)  ──HTTP JSON──▶  apps/agent (Fas
                               "url": null, "message": "한국어 사유" }] }
 ```
 - 기타: `GET /health`(라이선스 없이도 항상 열림), `GET /api/video/{job_id}`(MP4).
-- **도입 예정 (하위호환 추가, 코드에 들어가기 전까지는 코드가 정본)**: `Scene.video_prompt`·`Scene.dialogue`, `GenerateResponse.video_status("none|pending|ready|failed", 기본 none)`, `GET /api/video/{job_id}/status`. 넣는 PR 은 §3 동기화 규칙대로 양쪽+테스트+Mock 을 한 번에.
+- `video_status`: 지금은 `/api/generate` 가 영상까지 동기로 끝내서 `ready|failed|none` 만 나온다. **`pending`(비동기 영상 잡)은 이세림의 Flow 구현 PR 에서 실제로 쓰기 시작**하며, 웹은 `pending` 을 이미 처리할 수 있어야 한다.
 - 에러: 입력 오류 `422`, 라이선스 없음 `403`. 그 외 채널 오류는 예외가 아니라 `status:"failed"`.
 
 **계약 동기화 규칙 (가장 중요)**

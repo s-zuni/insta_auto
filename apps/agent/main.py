@@ -23,6 +23,8 @@ from .core.schemas import (
     PublishRequest,
     PublishResponse,
     PublishResult,
+    VideoStatus,
+    VideoStatusResponse,
 )
 from .generators.matrix_prompt import generate_all
 from .media import shorts_composer
@@ -37,6 +39,8 @@ app.add_middleware(
 
 # job_id → 최근 영상 경로 (프로세스 메모리; 로컬 단일 사용자 전제)
 _videos: dict[str, Path] = {}
+# job_id → (영상 상태, 한국어 메시지)
+_video_status: dict[str, tuple[VideoStatus, str]] = {}
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -60,6 +64,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     content, mock = await generate_all(req)
     warnings: list[str] = []
     video_url = None
+    video_status: VideoStatus = "none"
     if mock:
         warnings.append("ANTHROPIC_API_KEY 가 없어 Mock 콘텐츠로 생성했습니다.")
     if req.render_video:
@@ -69,9 +74,30 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             content.shorts.duration_sec = dur
             _videos[job_id] = path
             video_url = f"/api/video/{job_id}"
+            video_status = "ready"
+            _video_status[job_id] = ("ready", "")
         except Exception as e:  # noqa: BLE001  (영상 실패해도 텍스트 콘텐츠는 돌려준다)
             warnings.append(f"영상 생성 실패: {e}")
-    return GenerateResponse(job_id=job_id, content=content, video_url=video_url, warnings=warnings, mock=mock)
+            video_status = "failed"
+            _video_status[job_id] = ("failed", f"영상 생성 실패: {e}")
+    return GenerateResponse(
+        job_id=job_id, content=content, video_url=video_url, warnings=warnings, mock=mock,
+        video_status=video_status,
+    )
+
+
+@app.get("/api/video/{job_id}/status", response_model=VideoStatusResponse)
+def video_status(job_id: str) -> VideoStatusResponse:
+    """영상 진행 상태 (웹이 폴링). 아직 영상 요청이 없던 job 은 none 이 아니라 404."""
+    if job_id in _video_status:
+        status, message = _video_status[job_id]
+    elif (settings.output_dir / job_id / "shorts.mp4").exists():
+        status, message = "ready", ""
+    else:
+        raise HTTPException(404, "해당 작업의 영상 정보가 없습니다")
+    return VideoStatusResponse(
+        status=status, message=message, video_url=f"/api/video/{job_id}" if status == "ready" else None,
+    )
 
 
 @app.get("/api/video/{job_id}")

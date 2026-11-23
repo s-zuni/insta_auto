@@ -5,6 +5,7 @@
 export type StyleId = "info" | "story" | "review" | "promo" | "empathy";
 export type Channel = "instagram" | "youtube" | "threads" | "naver_blog";
 export type PublishStatus = "ok" | "failed" | "dry_run" | "skipped";
+export type VideoStatus = "none" | "pending" | "ready" | "failed";
 
 export interface GenerateRequest {
   business_type: string;
@@ -19,6 +20,10 @@ export interface Scene {
   narration: string;
   on_screen_text: string;
   image_prompt: string;
+  /** Flow 영상 샷 설명(영어). 하위호환 추가 필드 */
+  video_prompt?: string;
+  /** Flow 영상 속 음성 대사(한국어 20~25자). 하위호환 추가 필드 */
+  dialogue?: string;
 }
 
 export interface ShortsContent {
@@ -53,6 +58,14 @@ export interface GenerateResponse {
   video_url: string | null;
   warnings: string[];
   mock: boolean;
+  /** 영상 진행 상태. 없으면 "none" 으로 취급 */
+  video_status?: VideoStatus;
+}
+
+export interface VideoStatusResponse {
+  status: VideoStatus;
+  message: string;
+  video_url: string | null;
 }
 
 export interface PublishRequest {

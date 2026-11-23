@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 StyleId = Literal["info", "story", "review", "promo", "empathy"]
 Channel = Literal["instagram", "youtube", "threads", "naver_blog"]
 PublishStatus = Literal["ok", "failed", "dry_run", "skipped"]
+VideoStatus = Literal["none", "pending", "ready", "failed"]
 
 
 # ---------- 입력 ----------
@@ -29,6 +30,9 @@ class Scene(BaseModel):
     narration: str = Field(..., description="TTS로 읽을 문장")
     on_screen_text: str = Field("", description="화면 상단 큰 텍스트")
     image_prompt: str = Field("", description="배경 이미지 프롬프트 (없으면 그라데이션)")
+    # Flow 영상용 (하위호환 추가, 비어 있으면 narration 으로 대체)
+    video_prompt: str = Field("", description="Flow 영상 샷 설명 (영어, 한 컷)")
+    dialogue: str = Field("", description="Flow 영상 속 음성 대사 (한국어, 20~25자)")
 
 
 class ShortsContent(BaseModel):
@@ -63,6 +67,13 @@ class GenerateResponse(BaseModel):
     video_url: str | None = Field(None, description="Agent 기준 상대 경로 (/api/video/{job_id})")
     warnings: list[str] = Field(default_factory=list)
     mock: bool = Field(False, description="AI 키 없이 Mock 으로 생성됐는지")
+    video_status: VideoStatus = Field("none", description="영상 진행 상태. none=요청 안 함")
+
+
+class VideoStatusResponse(BaseModel):
+    status: VideoStatus
+    message: str = Field("", description="한국어 사유 (failed 일 때 원인)")
+    video_url: str | None = Field(None, description="ready 일 때 /api/video/{job_id}")
 
 
 # ---------- 발행 ----------
