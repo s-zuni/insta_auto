@@ -24,6 +24,7 @@
       "Read(./.env.*)",
       "Read(./**/*.key)",
       "Read(./apps/agent/.browser_profile/**)",
+      "Read(./apps/agent/.flow_profile/**)",
       "Edit(./_legacy_archive/**)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",

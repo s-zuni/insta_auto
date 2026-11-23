@@ -3,7 +3,7 @@
   "members": {
     "A": {
       "name": "박영준",
-      "role": "Web·발행 코드",
+      "role": "Web·발행 코드 (현재 스프린트: 쓰레드)",
       "dirs": [
         "apps/web/",
         "apps/agent/publishers/"
@@ -16,7 +16,7 @@
     },
     "B": {
       "name": "이세림",
-      "role": "AI·영상",
+      "role": "AI·영상 (현재 스프린트: Flow 영상 자동화)",
       "dirs": [
         "apps/agent/generators/",
         "apps/agent/media/",

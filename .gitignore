@@ -24,6 +24,7 @@ venv/
 *.mp3
 apps/agent/output/
 apps/agent/.browser_profile/
+apps/agent/.flow_profile/
 apps/agent/.license_cache.json
 
 # --- OS / editor ---
